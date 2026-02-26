@@ -1,8 +1,41 @@
-import { app, BrowserWindow, nativeImage, Tray } from "electron";
-import { fileURLToPath } from "node:url";
+import { app, BrowserWindow, ipcMain, nativeImage, Tray } from "electron";
+import Database from "better-sqlite3";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+let db = null;
+function initDb() {
+  const userData = app.getPath("userData");
+  const dbPath = path.join(userData, "handoff.db");
+  db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS handoff_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_app TEXT NOT NULL DEFAULT 'cursor',
+      deliver_on_date TEXT NOT NULL,
+      note_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      delivered_at TEXT
+    )
+  `);
+  return db;
+}
+function insertNote(targetApp, deliverOnDate, noteText) {
+  if (!db) throw new Error("Database not initialized. Call initDb() first.");
+  const stmt = db.prepare(`
+    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
+    VALUES (?, ?, ?)
+  `);
+  const result = stmt.run(targetApp, deliverOnDate, noteText);
+  return result.lastInsertRowid;
+}
+function getNotes() {
+  if (!db) throw new Error("Database not initialized. Call initDb() first.");
+  const stmt = db.prepare("SELECT * FROM handoff_notes");
+  return stmt.all();
+}
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+globalThis.__filename = fileURLToPath(import.meta.url);
 process.env.APP_ROOT = path.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
@@ -66,7 +99,21 @@ app.on("activate", () => {
     createWindow();
   }
 });
-app.whenReady().then(createTray);
+app.whenReady().then(() => {
+  initDb();
+  const deliverOnDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const id = insertNote("cursor", deliverOnDate, "Test note from Milestone 2");
+  const notes = getNotes();
+  console.log("[db] Insert test: id =", id);
+  console.log("[db] Read test: notes =", notes);
+  createTray();
+  ipcMain.handle("db:insert", (_, { targetApp, deliverOnDate: deliverOnDate2, noteText }) => {
+    return insertNote(targetApp, deliverOnDate2, noteText);
+  });
+  ipcMain.handle("db:getAll", () => {
+    return getNotes();
+  });
+});
 export {
   MAIN_DIST,
   RENDERER_DIST,

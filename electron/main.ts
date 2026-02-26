@@ -1,9 +1,11 @@
-import { app, BrowserWindow, Tray, nativeImage } from 'electron'
+import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron'
+import { initDb, insertNote, getNotes } from './db'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+;(globalThis as any).__filename = fileURLToPath(import.meta.url)
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
@@ -80,4 +82,23 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(createTray)
+app.whenReady().then(() => {
+  initDb()
+
+  // One-time test: insert and read to verify DB works
+  const deliverOnDate = new Date().toISOString().slice(0, 10)
+  const id = insertNote('cursor', deliverOnDate, 'Test note from Milestone 2')
+  const notes = getNotes()
+  console.log('[db] Insert test: id =', id)
+  console.log('[db] Read test: notes =', notes)
+
+  createTray()
+
+  ipcMain.handle('db:insert', (_, { targetApp, deliverOnDate, noteText }) => {
+    return insertNote(targetApp, deliverOnDate, noteText)
+  })
+
+  ipcMain.handle('db:getAll', () => {
+    return getNotes()
+  })
+})
