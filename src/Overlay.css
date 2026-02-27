@@ -1,0 +1,28 @@
+.overlay {
+  padding: 1rem;
+  background: #1a1a1a;
+  color: #eee;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.overlay-note {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.overlay-dismiss {
+  margin-top: 1rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  background: #333;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.overlay-dismiss:hover {
+  background: #444;
+}

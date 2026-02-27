@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron'
 import activeWindow from 'active-win'
-import { initDb, upsertNoteForTomorrow, getNoteForDate, getTomorrowDateStr } from './db'
+import { initDb, upsertNoteForTomorrow, getNoteForDate, getTomorrowDateStr, getTodayDateStr, getUndeliveredNoteForDate, markNoteAsDelivered } from './db'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -16,6 +16,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
+let pendingOverlayNote: { id: number; note_text: string } | null = null
 
 function createTray() {
   const iconPath = getIconPath()
@@ -49,9 +50,45 @@ function getIconPath() {
   throw new Error(`Tray icon not found. Tried:\n${publicPath}\n${distPath}`)
 }
 
+const MORNING_START_HOUR = 5
+
+function getEligibleNoteForToday(): {
+  id: number
+  note_text: string
+} | null {
+  const now = new Date()
+  if (now.getHours() < MORNING_START_HOUR) return null
+
+  const today = getTodayDateStr()
+  const note = getUndeliveredNoteForDate('cursor', today)
+  return note ? { id: note.id, note_text: note.note_text } : null
+}
+
+function createOverlayWindow(note: { id: number; note_text: string }) {
+  pendingOverlayNote = note
+  const overlay = new BrowserWindow({
+    width: 350,
+    height: 150,
+    alwaysOnTop: true,
+    title: 'Context Handoff',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.mjs'),
+    },
+  })
+  if (VITE_DEV_SERVER_URL) {
+    const url = VITE_DEV_SERVER_URL + (VITE_DEV_SERVER_URL.includes('?') ? '&' : '?') + 'overlay=1'
+    overlay.loadURL(url)
+  } else {
+    overlay.loadFile(path.join(RENDERER_DIST, 'index.html'), { query: { overlay: '1' } })
+  }
+  overlay.on('closed', () => {
+    pendingOverlayNote = null
+  })
+}
+
 function createWindow() {
   win = new BrowserWindow({
-    title: 'Context HandOff - Editor',
+    title: 'Context Handoff',
     width: 400,
     height: 300,
     icon: getIconPath(),
@@ -96,7 +133,11 @@ app.whenReady().then(() => {
       const currentApp = active?.owner?.name ?? ''
       if (currentApp !== previousApp) {
         if (currentApp === CURSOR_APP_NAME) {
-          console.log(`frontmost changed: ${previousApp || '(none)'} → Cursor`)
+          const note = getEligibleNoteForToday()
+          if (note) {
+            createOverlayWindow(note)
+            markNoteAsDelivered(note.id)
+          }
         }
         previousApp = currentApp
       }
@@ -113,5 +154,9 @@ app.whenReady().then(() => {
   ipcMain.handle('db:getNoteForTomorrow', () => {
     const tomorrow = getTomorrowDateStr()
     return getNoteForDate('cursor', tomorrow)
+  })
+
+  ipcMain.handle('overlay:getNote', () => {
+    return pendingOverlayNote
   })
 })

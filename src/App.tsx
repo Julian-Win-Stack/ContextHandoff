@@ -28,7 +28,7 @@ function App() {
 
   return (
     <div className="editor">
-      <h2>Tomorrow Note</h2>
+      <h2>Context Handoff</h2>
       <p className="editor-delivery">Will deliver on: {getTomorrowFormatted()}</p>
       <textarea
         placeholder="Write your note for tomorrow..."

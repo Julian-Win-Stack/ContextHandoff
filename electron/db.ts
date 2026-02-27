@@ -10,6 +10,11 @@ export function getTomorrowDateStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+export function getTodayDateStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function initDb(): Database.Database {
   const userData = app.getPath('userData')
   const dbPath = path.join(userData, 'handoff.db')
@@ -55,6 +60,43 @@ export function getNoteForDate(
     created_at: string
     delivered_at: string | null
   } | null
+}
+
+export function getUndeliveredNoteForDate(
+  targetApp: string,
+  deliverOnDate: string
+): {
+  id: number
+  target_app: string
+  deliver_on_date: string
+  note_text: string
+  created_at: string
+  delivered_at: string | null
+} | null {
+  if (!db) throw new Error('Database not initialized. Call initDb() first.')
+
+  const stmt = db.prepare(`
+    SELECT * FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ? AND delivered_at IS NULL
+  `)
+  const row = stmt.get(targetApp, deliverOnDate)
+  return (row ?? null) as {
+    id: number
+    target_app: string
+    deliver_on_date: string
+    note_text: string
+    created_at: string
+    delivered_at: string | null
+  } | null
+}
+
+export function markNoteAsDelivered(noteId: number): void {
+  if (!db) throw new Error('Database not initialized. Call initDb() first.')
+
+  const stmt = db.prepare(`
+    UPDATE handoff_notes SET delivered_at = datetime('now') WHERE id = ?
+  `)
+  stmt.run(noteId)
 }
 
 export function upsertNoteForTomorrow(targetApp: string, noteText: string): number {
