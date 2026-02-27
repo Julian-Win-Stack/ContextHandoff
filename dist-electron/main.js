@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, nativeImage, Tray } from "electron";
+import activeWindow from "active-win";
 import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,6 +118,23 @@ app.on("activate", () => {
 app.whenReady().then(() => {
   initDb();
   createTray();
+  let previousApp = "";
+  const CURSOR_APP_NAME = "Cursor";
+  setInterval(async () => {
+    var _a;
+    try {
+      const active = await activeWindow();
+      const currentApp = ((_a = active == null ? void 0 : active.owner) == null ? void 0 : _a.name) ?? "";
+      if (currentApp !== previousApp) {
+        if (currentApp === CURSOR_APP_NAME) {
+          console.log(`frontmost changed: ${previousApp || "(none)"} → Cursor`);
+        }
+        previousApp = currentApp;
+      }
+    } catch (err) {
+      console.error("[frontmost poll]", err);
+    }
+  }, 500);
   ipcMain.handle("db:upsertForTomorrow", (_, { targetApp, noteText }) => {
     upsertNoteForTomorrow(targetApp, noteText);
     return { ok: true };

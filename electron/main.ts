@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron'
+import activeWindow from 'active-win'
 import { initDb, upsertNoteForTomorrow, getNoteForDate, getTomorrowDateStr } from './db'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -85,6 +86,23 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   initDb()
   createTray()
+
+  let previousApp = ''
+  const CURSOR_APP_NAME = 'Cursor'
+  setInterval(async () => {
+    try {
+      const active = await activeWindow()
+      const currentApp = active?.owner?.name ?? ''
+      if (currentApp !== previousApp) {
+        if (currentApp === CURSOR_APP_NAME) {
+          console.log(`frontmost changed: ${previousApp || '(none)'} → Cursor`)
+        }
+        previousApp = currentApp
+      }
+    } catch (err) {
+      console.error('[frontmost poll]', err)
+    }
+  }, 500)
 
   ipcMain.handle('db:upsertForTomorrow', (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
     upsertNoteForTomorrow(targetApp, noteText)
