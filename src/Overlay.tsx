@@ -10,6 +10,15 @@ function Overlay() {
     })
   }, [])
 
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') window.close()
+  }
+
   function handleDismiss() {
     window.close()
   }
