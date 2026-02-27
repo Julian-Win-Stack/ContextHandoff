@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron'
 import activeWindow from 'active-win'
-import { initDb, upsertNoteForTomorrow, getNoteForDate, getTomorrowDateStr, getTodayDateStr, getUndeliveredNoteForDate, markNoteAsDelivered } from './db'
+import { initDb, upsertNoteForTomorrow, upsertNoteForToday, getNoteForDate, getTomorrowDateStr, getTodayDateStr, getUndeliveredNoteForDate, markNoteAsDelivered } from './db'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -67,8 +67,8 @@ function getEligibleNoteForToday(): {
 function createOverlayWindow(note: { id: number; note_text: string }) {
   pendingOverlayNote = note
   const overlay = new BrowserWindow({
-    width: 350,
-    height: 150,
+    width: 420,
+    height: 220,
     alwaysOnTop: true,
     title: 'Context Handoff',
     webPreferences: {
@@ -151,9 +151,19 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
+  ipcMain.handle('db:upsertForToday', (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+    upsertNoteForToday(targetApp, noteText)
+    return { ok: true }
+  })
+
   ipcMain.handle('db:getNoteForTomorrow', () => {
     const tomorrow = getTomorrowDateStr()
     return getNoteForDate('cursor', tomorrow)
+  })
+
+  ipcMain.handle('db:getNoteForToday', () => {
+    const today = getTodayDateStr()
+    return getNoteForDate('cursor', today)
   })
 
   ipcMain.handle('overlay:getNote', () => {

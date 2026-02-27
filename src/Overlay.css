@@ -1,28 +1,36 @@
 .overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   padding: 1rem;
   background: #1a1a1a;
   color: #eee;
   font-size: 0.875rem;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.overlay-hint {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.7rem;
+  color: #999;
 }
 
 .overlay-note {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.overlay-dismiss {
-  margin-top: 1rem;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.75rem;
-  font-family: inherit;
-  background: #333;
-  color: #eee;
-  border: 1px solid #555;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.overlay-dismiss:hover {
-  background: #444;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+  box-sizing: border-box;
 }

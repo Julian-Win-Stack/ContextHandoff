@@ -19,16 +19,10 @@ function Overlay() {
     if (e.key === 'Escape') window.close()
   }
 
-  function handleDismiss() {
-    window.close()
-  }
-
   return (
     <div className="overlay">
+      <p className="overlay-hint">Click esc to dismiss</p>
       <div className="overlay-note">{note ?? '(No note)'}</div>
-      <button type="button" className="overlay-dismiss" onClick={handleDismiss}>
-        Dismiss
-      </button>
     </div>
   )
 }

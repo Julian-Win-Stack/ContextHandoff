@@ -117,3 +117,22 @@ export function upsertNoteForTomorrow(targetApp: string, noteText: string): numb
   const result = insertStmt.run(targetApp, tomorrow, noteText)
   return result.lastInsertRowid as number
 }
+
+export function upsertNoteForToday(targetApp: string, noteText: string): number {
+  if (!db) throw new Error('Database not initialized. Call initDb() first.')
+
+  const today = getTodayDateStr()
+
+  const deleteStmt = db.prepare(`
+    DELETE FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ?
+  `)
+  deleteStmt.run(targetApp, today)
+
+  const insertStmt = db.prepare(`
+    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
+    VALUES (?, ?, ?)
+  `)
+  const result = insertStmt.run(targetApp, today, noteText)
+  return result.lastInsertRowid as number
+}
