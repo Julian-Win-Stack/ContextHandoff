@@ -1,71 +1,89 @@
-import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron'
-import activeWindow from 'active-win'
-import { initDb, upsertNoteForTomorrow, upsertNoteForToday, getNoteForDate, getTomorrowDateStr, getTodayDateStr, getUndeliveredNoteForDate, markNoteAsDelivered } from './db'
-import { fileURLToPath } from 'node:url'
-import path from 'node:path'
-import fs from 'node:fs'
+import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron';
+import activeWindow from 'active-win';
+import {
+  initDb,
+  upsertNoteForTomorrow,
+  upsertNoteForToday,
+  getNoteForDate,
+  getTomorrowDateStr,
+  getTodayDateStr,
+  getUndeliveredNoteForDate,
+  markNoteAsDelivered,
+  getTargetApp,
+  setTargetApp,
+} from './db';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-;(globalThis as any).__filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+(globalThis as any).__filename = fileURLToPath(import.meta.url);
 
-process.env.APP_ROOT = path.join(__dirname, '..')
-export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
-export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
-export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
+process.env.APP_ROOT = path.join(__dirname, '..');
+export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
+export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron');
+export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist');
+process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
+  ? path.join(process.env.APP_ROOT, 'public')
+  : RENDERER_DIST;
 
-let win: BrowserWindow | null = null
-let tray: Tray | null = null
-let pendingOverlayNote: { id: number; note_text: string } | null = null
+let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let pendingOverlayNote: { id: number; note_text: string } | null = null;
+let lastActiveAppBeforeEditorOpen = '';
 
 function createTray() {
-  const iconPath = getIconPath()
-  const icon = nativeImage.createFromPath(iconPath)
-  if (process.platform === 'darwin') icon.setTemplateImage(true)
+  const iconPath = getIconPath();
+  const icon = nativeImage.createFromPath(iconPath);
+  if (process.platform === 'darwin') icon.setTemplateImage(true);
 
-  tray = new Tray(icon.isEmpty() ? iconPath : icon)
-  tray.setToolTip('Context HandOff')
+  tray = new Tray(icon.isEmpty() ? iconPath : icon);
+  tray.setToolTip('Context HandOff');
 
-  tray.on('click', () => {
+  tray.on('click', async () => {
+    const active = await activeWindow();
+    lastActiveAppBeforeEditorOpen = active?.owner?.name ?? '';
     if (win && !win.isDestroyed()) {
-      win.show()
-      win.focus()
+      win.show();
+      win.focus();
     } else {
       createWindow();
     }
-  })
-
+  });
 }
 
 function getIconPath() {
-  const appRoot = process.env.APP_ROOT!
-  const iconName = 'tray-iconTemplate.png'
+  const appRoot = process.env.APP_ROOT!;
+  const iconName = 'tray-iconTemplate.png';
 
-  const publicPath = path.join(appRoot, 'public', iconName)
-  const distPath = path.join(appRoot, 'dist', iconName)
+  const publicPath = path.join(appRoot, 'public', iconName);
+  const distPath = path.join(appRoot, 'dist', iconName);
 
-  if (fs.existsSync(publicPath)) return publicPath
-  if (fs.existsSync(distPath)) return distPath
+  if (fs.existsSync(publicPath)) return publicPath;
+  if (fs.existsSync(distPath)) return distPath;
 
-  throw new Error(`Tray icon not found. Tried:\n${publicPath}\n${distPath}`)
+  throw new Error(`Tray icon not found. Tried:\n${publicPath}\n${distPath}`);
 }
 
-const MORNING_START_HOUR = 5
+const MORNING_START_HOUR = 5;
 
 function getEligibleNoteForToday(): {
-  id: number
-  note_text: string
+  id: number;
+  note_text: string;
 } | null {
-  const now = new Date()
-  if (now.getHours() < MORNING_START_HOUR) return null
+  const now = new Date();
+  if (now.getHours() < MORNING_START_HOUR) return null;
 
-  const today = getTodayDateStr()
-  const note = getUndeliveredNoteForDate('cursor', today)
-  return note ? { id: note.id, note_text: note.note_text } : null
+  const targetApp = getTargetApp(); 
+  if (!targetApp) return null;
+
+  const today = getTodayDateStr();
+  const note = getUndeliveredNoteForDate(targetApp, today);
+  return note ? { id: note.id, note_text: note.note_text } : null;
 }
 
 function createOverlayWindow(note: { id: number; note_text: string }) {
-  pendingOverlayNote = note
+  pendingOverlayNote = note;
   const overlay = new BrowserWindow({
     width: 420,
     height: 220,
@@ -74,99 +92,131 @@ function createOverlayWindow(note: { id: number; note_text: string }) {
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
-  })
+  });
   if (VITE_DEV_SERVER_URL) {
-    const url = VITE_DEV_SERVER_URL + (VITE_DEV_SERVER_URL.includes('?') ? '&' : '?') + 'overlay=1'
-    overlay.loadURL(url)
+    const url =
+      VITE_DEV_SERVER_URL +
+      (VITE_DEV_SERVER_URL.includes('?') ? '&' : '?') +
+      'overlay=1';
+    overlay.loadURL(url);
   } else {
-    overlay.loadFile(path.join(RENDERER_DIST, 'index.html'), { query: { overlay: '1' } })
+    overlay.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+      query: { overlay: '1' },
+    });
   }
   overlay.on('closed', () => {
-    pendingOverlayNote = null
-  })
+    pendingOverlayNote = null;
+  });
 }
 
 function createWindow() {
   win = new BrowserWindow({
     title: 'Context Handoff',
-    width: 400,
-    height: 300,
+    width: 550,
+    height: 450,
     icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
-  })
+  });
 
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL)
+    win.loadURL(VITE_DEV_SERVER_URL);
   } else {
-    win.loadFile(path.join(RENDERER_DIST, 'index.html'))
+    win.loadFile(path.join(RENDERER_DIST, 'index.html'));
   }
   win.on('closed', () => {
-    win = null
-  })
+    win = null;
+  });
 }
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
+    app.quit();
+    win = null;
   }
-})
+});
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    createWindow();
   }
-})
+});
 
 app.whenReady().then(() => {
-  if (process.platform === 'darwin') app.dock.hide()
-  initDb()
-  createTray()
+  if (process.platform === 'darwin') app.dock.hide();
+  initDb();
+  createTray();
 
-  let previousApp = ''
-  const CURSOR_APP_NAME = 'Cursor'
+  let previousApp = '';
   setInterval(async () => {
     try {
-      const active = await activeWindow()
-      const currentApp = active?.owner?.name ?? ''
+      const targetApp = getTargetApp();
+      if (!targetApp) return;
+
+      const active = await activeWindow();
+      const currentApp = active?.owner?.name ?? '';
       if (currentApp !== previousApp) {
-        if (currentApp === CURSOR_APP_NAME) {
-          const note = getEligibleNoteForToday()
+        if (currentApp === targetApp) {
+          const note = getEligibleNoteForToday();
           if (note) {
-            createOverlayWindow(note)
-            markNoteAsDelivered(note.id)
+            createOverlayWindow(note);
+            markNoteAsDelivered(note.id);
           }
         }
-        previousApp = currentApp
+        previousApp = currentApp;
       }
     } catch (err) {
-      console.error('[frontmost poll]', err)
+      console.error('[frontmost poll]', err);
     }
-  }, 500)
+  }, 500);
 
-  ipcMain.handle('db:upsertForTomorrow', (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
-    upsertNoteForTomorrow(targetApp, noteText)
-    return { ok: true }
-  })
+  ipcMain.handle(
+    'db:upsertForTomorrow',
+    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForTomorrow(targetApp, noteText);
+      return { ok: true };
+    }
+  );
 
-  ipcMain.handle('db:upsertForToday', (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
-    upsertNoteForToday(targetApp, noteText)
-    return { ok: true }
-  })
+  ipcMain.handle(
+    'db:upsertForToday',
+    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForToday(targetApp, noteText);
+      return { ok: true };
+    }
+  );
 
   ipcMain.handle('db:getNoteForTomorrow', () => {
-    const tomorrow = getTomorrowDateStr()
-    return getNoteForDate('cursor', tomorrow)
-  })
+    const targetApp = getTargetApp();
+    if (!targetApp) return null;
+    const tomorrow = getTomorrowDateStr();
+    return getNoteForDate(targetApp, tomorrow);
+  });
 
   ipcMain.handle('db:getNoteForToday', () => {
-    const today = getTodayDateStr()
-    return getNoteForDate('cursor', today)
-  })
+    const targetApp = getTargetApp();
+    if (!targetApp) return null;
+    const today = getTodayDateStr();
+    return getNoteForDate(targetApp, today);
+  });
 
   ipcMain.handle('overlay:getNote', () => {
-    return pendingOverlayNote
-  })
-})
+    return pendingOverlayNote;
+  });
+
+  ipcMain.handle('app:getLastActiveApp', () => {
+    return lastActiveAppBeforeEditorOpen;
+  });
+
+  ipcMain.handle('app:getTargetApp', () => {
+    return getTargetApp();
+  });
+
+  ipcMain.handle(
+    'app:setTargetApp', (_, appName: string) => {
+      setTargetApp(appName);
+      return { ok: true };
+    }
+  );
+});

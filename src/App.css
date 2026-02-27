@@ -1,5 +1,49 @@
 .editor {
   padding: 1rem;
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.editor-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-target {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.editor-target-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.editor-select-app {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background: #333;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.editor-select-app:hover {
+  background: #444;
+}
+
+.editor-select-error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #e11d48;
+  max-width: 180px;
 }
 
 .editor h2 {

@@ -28,7 +28,32 @@ function initDb() {
       delivered_at TEXT
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
   return db;
+}
+function getSetting(key) {
+  if (!db) throw new Error("Database not initialized. Call initDb() first.");
+  const stmt = db.prepare(`SELECT value FROM app_settings WHERE key = ?`);
+  const row = stmt.get(key);
+  return (row == null ? void 0 : row.value) ?? null;
+}
+function setSetting(key, value) {
+  if (!db) throw new Error("Database not initialized. Call initDb() first.");
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)
+  `);
+  stmt.run(key, value);
+}
+function getTargetApp() {
+  return getSetting("target_app");
+}
+function setTargetApp(appName) {
+  setSetting("target_app", appName);
 }
 function getNoteForDate(targetApp, deliverOnDate) {
   if (!db) throw new Error("Database not initialized. Call initDb() first.");
@@ -95,13 +120,17 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win = null;
 let tray = null;
 let pendingOverlayNote = null;
+let lastActiveAppBeforeEditorOpen = "";
 function createTray() {
   const iconPath = getIconPath();
   const icon = nativeImage.createFromPath(iconPath);
   if (process.platform === "darwin") icon.setTemplateImage(true);
   tray = new Tray(icon.isEmpty() ? iconPath : icon);
   tray.setToolTip("Context HandOff");
-  tray.on("click", () => {
+  tray.on("click", async () => {
+    var _a;
+    const active = await activeWindow();
+    lastActiveAppBeforeEditorOpen = ((_a = active == null ? void 0 : active.owner) == null ? void 0 : _a.name) ?? "";
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
@@ -125,8 +154,10 @@ const MORNING_START_HOUR = 5;
 function getEligibleNoteForToday() {
   const now = /* @__PURE__ */ new Date();
   if (now.getHours() < MORNING_START_HOUR) return null;
+  const targetApp = getTargetApp();
+  if (!targetApp) return null;
   const today = getTodayDateStr();
-  const note = getUndeliveredNoteForDate("cursor", today);
+  const note = getUndeliveredNoteForDate(targetApp, today);
   return note ? { id: note.id, note_text: note.note_text } : null;
 }
 function createOverlayWindow(note) {
@@ -144,7 +175,9 @@ function createOverlayWindow(note) {
     const url = VITE_DEV_SERVER_URL + (VITE_DEV_SERVER_URL.includes("?") ? "&" : "?") + "overlay=1";
     overlay.loadURL(url);
   } else {
-    overlay.loadFile(path.join(RENDERER_DIST, "index.html"), { query: { overlay: "1" } });
+    overlay.loadFile(path.join(RENDERER_DIST, "index.html"), {
+      query: { overlay: "1" }
+    });
   }
   overlay.on("closed", () => {
     pendingOverlayNote = null;
@@ -153,8 +186,8 @@ function createOverlayWindow(note) {
 function createWindow() {
   win = new BrowserWindow({
     title: "Context Handoff",
-    width: 400,
-    height: 300,
+    width: 550,
+    height: 450,
     icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname$1, "preload.mjs")
@@ -185,14 +218,15 @@ app.whenReady().then(() => {
   initDb();
   createTray();
   let previousApp = "";
-  const CURSOR_APP_NAME = "Cursor";
   setInterval(async () => {
     var _a;
     try {
+      const targetApp = getTargetApp();
+      if (!targetApp) return;
       const active = await activeWindow();
       const currentApp = ((_a = active == null ? void 0 : active.owner) == null ? void 0 : _a.name) ?? "";
       if (currentApp !== previousApp) {
-        if (currentApp === CURSOR_APP_NAME) {
+        if (currentApp === targetApp) {
           const note = getEligibleNoteForToday();
           if (note) {
             createOverlayWindow(note);
@@ -205,25 +239,48 @@ app.whenReady().then(() => {
       console.error("[frontmost poll]", err);
     }
   }, 500);
-  ipcMain.handle("db:upsertForTomorrow", (_, { targetApp, noteText }) => {
-    upsertNoteForTomorrow(targetApp, noteText);
-    return { ok: true };
-  });
-  ipcMain.handle("db:upsertForToday", (_, { targetApp, noteText }) => {
-    upsertNoteForToday(targetApp, noteText);
-    return { ok: true };
-  });
+  ipcMain.handle(
+    "db:upsertForTomorrow",
+    (_, { targetApp, noteText }) => {
+      upsertNoteForTomorrow(targetApp, noteText);
+      return { ok: true };
+    }
+  );
+  ipcMain.handle(
+    "db:upsertForToday",
+    (_, { targetApp, noteText }) => {
+      upsertNoteForToday(targetApp, noteText);
+      return { ok: true };
+    }
+  );
   ipcMain.handle("db:getNoteForTomorrow", () => {
+    const targetApp = getTargetApp();
+    if (!targetApp) return null;
     const tomorrow = getTomorrowDateStr();
-    return getNoteForDate("cursor", tomorrow);
+    return getNoteForDate(targetApp, tomorrow);
   });
   ipcMain.handle("db:getNoteForToday", () => {
+    const targetApp = getTargetApp();
+    if (!targetApp) return null;
     const today = getTodayDateStr();
-    return getNoteForDate("cursor", today);
+    return getNoteForDate(targetApp, today);
   });
   ipcMain.handle("overlay:getNote", () => {
     return pendingOverlayNote;
   });
+  ipcMain.handle("app:getLastActiveApp", () => {
+    return lastActiveAppBeforeEditorOpen;
+  });
+  ipcMain.handle("app:getTargetApp", () => {
+    return getTargetApp();
+  });
+  ipcMain.handle(
+    "app:setTargetApp",
+    (_, appName) => {
+      setTargetApp(appName);
+      return { ok: true };
+    }
+  );
 });
 export {
   MAIN_DIST,
