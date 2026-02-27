@@ -4,6 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 let db = null;
+function getTomorrowDateStr() {
+  const d = /* @__PURE__ */ new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 function initDb() {
   const userData = app.getPath("userData");
   const dbPath = path.join(userData, "handoff.db");
@@ -20,19 +25,29 @@ function initDb() {
   `);
   return db;
 }
-function insertNote(targetApp, deliverOnDate, noteText) {
+function getNoteForDate(targetApp, deliverOnDate) {
   if (!db) throw new Error("Database not initialized. Call initDb() first.");
   const stmt = db.prepare(`
+    SELECT * FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ?
+  `);
+  const row = stmt.get(targetApp, deliverOnDate);
+  return row ?? null;
+}
+function upsertNoteForTomorrow(targetApp, noteText) {
+  if (!db) throw new Error("Database not initialized. Call initDb() first.");
+  const tomorrow = getTomorrowDateStr();
+  const deleteStmt = db.prepare(`
+    DELETE FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ?
+  `);
+  deleteStmt.run(targetApp, tomorrow);
+  const insertStmt = db.prepare(`
     INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
     VALUES (?, ?, ?)
   `);
-  const result = stmt.run(targetApp, deliverOnDate, noteText);
+  const result = insertStmt.run(targetApp, tomorrow, noteText);
   return result.lastInsertRowid;
-}
-function getNotes() {
-  if (!db) throw new Error("Database not initialized. Call initDb() first.");
-  const stmt = db.prepare("SELECT * FROM handoff_notes");
-  return stmt.all();
 }
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 globalThis.__filename = fileURLToPath(import.meta.url);
@@ -101,17 +116,14 @@ app.on("activate", () => {
 });
 app.whenReady().then(() => {
   initDb();
-  const deliverOnDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const id = insertNote("cursor", deliverOnDate, "Test note from Milestone 2");
-  const notes = getNotes();
-  console.log("[db] Insert test: id =", id);
-  console.log("[db] Read test: notes =", notes);
   createTray();
-  ipcMain.handle("db:insert", (_, { targetApp, deliverOnDate: deliverOnDate2, noteText }) => {
-    return insertNote(targetApp, deliverOnDate2, noteText);
+  ipcMain.handle("db:upsertForTomorrow", (_, { targetApp, noteText }) => {
+    upsertNoteForTomorrow(targetApp, noteText);
+    return { ok: true };
   });
-  ipcMain.handle("db:getAll", () => {
-    return getNotes();
+  ipcMain.handle("db:getNoteForTomorrow", () => {
+    const tomorrow = getTomorrowDateStr();
+    return getNoteForDate("cursor", tomorrow);
   });
 });
 export {

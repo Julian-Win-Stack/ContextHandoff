@@ -4,6 +4,12 @@ import { app } from 'electron'
 
 let db: Database.Database | null = null
 
+export function getTomorrowDateStr(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function initDb(): Database.Database {
   const userData = app.getPath('userData')
   const dbPath = path.join(userData, 'handoff.db')
@@ -23,38 +29,49 @@ export function initDb(): Database.Database {
   return db
 }
 
-export function insertNote(
+export function getNoteForDate(
   targetApp: string,
-  deliverOnDate: string,
-  noteText: string
-): number {
-  if (!db) throw new Error('Database not initialized. Call initDb() first.')
-
-  const stmt = db.prepare(`
-    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
-    VALUES (?, ?, ?)
-  `)
-  const result = stmt.run(targetApp, deliverOnDate, noteText)
-  return result.lastInsertRowid as number
-}
-
-export function getNotes(): Array<{
+  deliverOnDate: string
+): {
   id: number
   target_app: string
   deliver_on_date: string
   note_text: string
   created_at: string
   delivered_at: string | null
-}> {
+} | null {
   if (!db) throw new Error('Database not initialized. Call initDb() first.')
 
-  const stmt = db.prepare('SELECT * FROM handoff_notes')
-  return stmt.all() as Array<{
+  const stmt = db.prepare(`
+    SELECT * FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ?
+  `)
+  const row = stmt.get(targetApp, deliverOnDate)
+  return (row ?? null) as {
     id: number
     target_app: string
     deliver_on_date: string
     note_text: string
     created_at: string
     delivered_at: string | null
-  }>
+  } | null
+}
+
+export function upsertNoteForTomorrow(targetApp: string, noteText: string): number {
+  if (!db) throw new Error('Database not initialized. Call initDb() first.')
+
+  const tomorrow = getTomorrowDateStr()
+
+  const deleteStmt = db.prepare(`
+    DELETE FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ?
+  `)
+  deleteStmt.run(targetApp, tomorrow)
+
+  const insertStmt = db.prepare(`
+    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
+    VALUES (?, ?, ?)
+  `)
+  const result = insertStmt.run(targetApp, tomorrow, noteText)
+  return result.lastInsertRowid as number
 }

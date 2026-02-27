@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron'
-import { initDb, insertNote, getNotes } from './db'
+import { initDb, upsertNoteForTomorrow, getNoteForDate, getTomorrowDateStr } from './db'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -84,21 +84,15 @@ app.on('activate', () => {
 
 app.whenReady().then(() => {
   initDb()
-
-  // One-time test: insert and read to verify DB works
-  const deliverOnDate = new Date().toISOString().slice(0, 10)
-  const id = insertNote('cursor', deliverOnDate, 'Test note from Milestone 2')
-  const notes = getNotes()
-  console.log('[db] Insert test: id =', id)
-  console.log('[db] Read test: notes =', notes)
-
   createTray()
 
-  ipcMain.handle('db:insert', (_, { targetApp, deliverOnDate, noteText }) => {
-    return insertNote(targetApp, deliverOnDate, noteText)
+  ipcMain.handle('db:upsertForTomorrow', (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+    upsertNoteForTomorrow(targetApp, noteText)
+    return { ok: true }
   })
 
-  ipcMain.handle('db:getAll', () => {
-    return getNotes()
+  ipcMain.handle('db:getNoteForTomorrow', () => {
+    const tomorrow = getTomorrowDateStr()
+    return getNoteForDate('cursor', tomorrow)
   })
 })
