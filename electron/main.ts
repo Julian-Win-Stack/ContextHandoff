@@ -84,6 +84,7 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') app.dock.hide()
   initDb()
   createTray()
 
