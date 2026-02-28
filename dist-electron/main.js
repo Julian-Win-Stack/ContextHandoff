@@ -34,6 +34,13 @@ function initDb() {
       value TEXT NOT NULL
     )
   `);
+  const currentTarget = getSetting("target_app");
+  if (currentTarget && !currentTarget.includes(".")) {
+    const deleteStmt = db.prepare(
+      `DELETE FROM app_settings WHERE key IN ('target_app', 'target_app_display_name')`
+    );
+    deleteStmt.run();
+  }
   return db;
 }
 function getSetting(key) {
@@ -50,10 +57,16 @@ function setSetting(key, value) {
   stmt.run(key, value);
 }
 function getTargetApp() {
-  return getSetting("target_app");
+  const value = getSetting("target_app");
+  return value || null;
 }
-function setTargetApp(appName) {
-  setSetting("target_app", appName);
+function getTargetAppDisplayName() {
+  const value = getSetting("target_app_display_name");
+  return value || null;
+}
+function setTargetApp(bundleId, displayName) {
+  setSetting("target_app", bundleId);
+  setSetting("target_app_display_name", displayName);
 }
 function getNoteForDate(targetApp, deliverOnDate) {
   if (!db) throw new Error("Database not initialized. Call initDb() first.");
@@ -120,7 +133,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win = null;
 let tray = null;
 let pendingOverlayNote = null;
-let lastActiveAppBeforeEditorOpen = "";
+let lastActiveAppBeforeEditorOpen = null;
 function createTray() {
   const iconPath = getIconPath();
   const icon = nativeImage.createFromPath(iconPath);
@@ -128,9 +141,11 @@ function createTray() {
   tray = new Tray(icon.isEmpty() ? iconPath : icon);
   tray.setToolTip("Context HandOff");
   tray.on("click", async () => {
-    var _a;
     const active = await activeWindow();
-    lastActiveAppBeforeEditorOpen = ((_a = active == null ? void 0 : active.owner) == null ? void 0 : _a.name) ?? "";
+    const owner = active == null ? void 0 : active.owner;
+    const bundleId = (owner == null ? void 0 : owner.bundleId) ?? "";
+    const displayName = (owner == null ? void 0 : owner.name) ?? "";
+    lastActiveAppBeforeEditorOpen = bundleId && displayName ? { bundleId, displayName } : null;
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
@@ -219,21 +234,21 @@ app.whenReady().then(() => {
   createTray();
   let previousApp = "";
   setInterval(async () => {
-    var _a;
     try {
       const targetApp = getTargetApp();
       if (!targetApp) return;
       const active = await activeWindow();
-      const currentApp = ((_a = active == null ? void 0 : active.owner) == null ? void 0 : _a.name) ?? "";
-      if (currentApp !== previousApp) {
-        if (currentApp === targetApp) {
+      const owner = active == null ? void 0 : active.owner;
+      const currentBundleId = (owner == null ? void 0 : owner.bundleId) ?? "";
+      if (currentBundleId !== previousApp) {
+        if (currentBundleId === targetApp) {
           const note = getEligibleNoteForToday();
           if (note) {
             createOverlayWindow(note);
             markNoteAsDelivered(note.id);
           }
         }
-        previousApp = currentApp;
+        previousApp = currentBundleId;
       }
     } catch (err) {
       console.error("[frontmost poll]", err);
@@ -241,15 +256,15 @@ app.whenReady().then(() => {
   }, 500);
   ipcMain.handle(
     "db:upsertForTomorrow",
-    (_, { targetApp, noteText }) => {
-      upsertNoteForTomorrow(targetApp, noteText);
+    (_, { targetApp: bundleId, noteText }) => {
+      upsertNoteForTomorrow(bundleId, noteText);
       return { ok: true };
     }
   );
   ipcMain.handle(
     "db:upsertForToday",
-    (_, { targetApp, noteText }) => {
-      upsertNoteForToday(targetApp, noteText);
+    (_, { targetApp: bundleId, noteText }) => {
+      upsertNoteForToday(bundleId, noteText);
       return { ok: true };
     }
   );
@@ -272,12 +287,14 @@ app.whenReady().then(() => {
     return lastActiveAppBeforeEditorOpen;
   });
   ipcMain.handle("app:getTargetApp", () => {
-    return getTargetApp();
+    const bundleId = getTargetApp();
+    const displayName = getTargetAppDisplayName();
+    return bundleId && displayName ? { bundleId, displayName } : null;
   });
   ipcMain.handle(
     "app:setTargetApp",
-    (_, appName) => {
-      setTargetApp(appName);
+    (_, { bundleId, displayName }) => {
+      setTargetApp(bundleId, displayName);
       return { ok: true };
     }
   );

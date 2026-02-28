@@ -27,11 +27,18 @@ function App() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deliverToday, setDeliverToday] = useState(false);
-  const [targetApp, setTargetApp] = useState<string | null>(null);
+  const [targetApp, setTargetApp] = useState<{
+    bundleId: string;
+    displayName: string;
+  } | null>(null);
   const [selectError, setSelectError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.ipcRenderer.invoke('app:getTargetApp').then(setTargetApp);
+    window.ipcRenderer
+      .invoke('app:getTargetApp')
+      .then((result: { bundleId: string; displayName: string } | null) =>
+        setTargetApp(result)
+      );
   }, []);
 
   useEffect(() => {
@@ -47,9 +54,9 @@ function App() {
 
   async function handleSelectCurrentApp() {
     setSelectError(null);
-    const lastActive = await window.ipcRenderer.invoke(
+    const lastActive = (await window.ipcRenderer.invoke(
       'app:getLastActiveApp'
-    ) as string;
+    )) as { bundleId: string; displayName: string } | null;
     if (!lastActive) {
       setSelectError(
         'No app detected. Open the editor from the app you want to select.'
@@ -65,7 +72,7 @@ function App() {
     setSaving(true);
     const channel = deliverToday ? 'db:upsertForToday' : 'db:upsertForTomorrow';
     await window.ipcRenderer.invoke(channel, {
-      targetApp,
+      targetApp: targetApp.bundleId,
       noteText: note,
     });
     setSaving(false);
@@ -116,7 +123,8 @@ function App() {
       <div className="editor-target">
         {targetApp ? (
           <p className="editor-target-label">
-            Notifications will show when you switch to {targetApp}.
+            Notifications will show when you switch to{' '}
+            <strong>{targetApp.displayName}</strong>.
           </p>
         ) : (
           <p className="editor-target-label">App not selected</p>

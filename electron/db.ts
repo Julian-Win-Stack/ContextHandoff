@@ -38,6 +38,15 @@ export function initDb(): Database.Database {
     )
   `);
 
+  // Migration: target_app now stores bundleId. Old app names (no dots) are invalid.
+  const currentTarget = getSetting('target_app');
+  if (currentTarget && !currentTarget.includes('.')) {
+    const deleteStmt = db.prepare(
+      `DELETE FROM app_settings WHERE key IN ('target_app', 'target_app_display_name')`
+    );
+    deleteStmt.run();
+  }
+
   return db;
 }
 
@@ -59,11 +68,18 @@ export function setSetting(key: string, value: string): void {
 }
 
 export function getTargetApp(): string | null {
-  return getSetting('target_app');
+  const value = getSetting('target_app');
+  return value || null;
 }
 
-export function setTargetApp(appName: string): void {
-  setSetting('target_app', appName);
+export function getTargetAppDisplayName(): string | null {
+  const value = getSetting('target_app_display_name');
+  return value || null;
+}
+
+export function setTargetApp(bundleId: string, displayName: string): void {
+  setSetting('target_app', bundleId);
+  setSetting('target_app_display_name', displayName);
 }
 
 export function getNoteForDate(

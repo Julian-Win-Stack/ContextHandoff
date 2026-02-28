@@ -10,6 +10,7 @@ import {
   getUndeliveredNoteForDate,
   markNoteAsDelivered,
   getTargetApp,
+  getTargetAppDisplayName,
   setTargetApp,
 } from './db';
 import { fileURLToPath } from 'node:url';
@@ -30,7 +31,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingOverlayNote: { id: number; note_text: string } | null = null;
-let lastActiveAppBeforeEditorOpen = '';
+let lastActiveAppBeforeEditorOpen: { bundleId: string; displayName: string } | null = null;
 
 function createTray() {
   const iconPath = getIconPath();
@@ -42,7 +43,11 @@ function createTray() {
 
   tray.on('click', async () => {
     const active = await activeWindow();
-    lastActiveAppBeforeEditorOpen = active?.owner?.name ?? '';
+    const owner = active?.owner as { name?: string; bundleId?: string } | undefined;
+    const bundleId = owner?.bundleId ?? '';
+    const displayName = owner?.name ?? '';
+    lastActiveAppBeforeEditorOpen =
+      bundleId && displayName ? { bundleId, displayName } : null;
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
@@ -155,16 +160,17 @@ app.whenReady().then(() => {
       if (!targetApp) return;
 
       const active = await activeWindow();
-      const currentApp = active?.owner?.name ?? '';
-      if (currentApp !== previousApp) {
-        if (currentApp === targetApp) {
+      const owner = active?.owner as { bundleId?: string } | undefined;
+      const currentBundleId = owner?.bundleId ?? '';
+      if (currentBundleId !== previousApp) {
+        if (currentBundleId === targetApp) {
           const note = getEligibleNoteForToday();
           if (note) {
             createOverlayWindow(note);
             markNoteAsDelivered(note.id);
           }
         }
-        previousApp = currentApp;
+        previousApp = currentBundleId;
       }
     } catch (err) {
       console.error('[frontmost poll]', err);
@@ -173,16 +179,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'db:upsertForTomorrow',
-    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
-      upsertNoteForTomorrow(targetApp, noteText);
+    (_, { targetApp: bundleId, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForTomorrow(bundleId, noteText);
       return { ok: true };
     }
   );
 
   ipcMain.handle(
     'db:upsertForToday',
-    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
-      upsertNoteForToday(targetApp, noteText);
+    (_, { targetApp: bundleId, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForToday(bundleId, noteText);
       return { ok: true };
     }
   );
@@ -210,12 +216,18 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('app:getTargetApp', () => {
-    return getTargetApp();
+    const bundleId = getTargetApp();
+    const displayName = getTargetAppDisplayName();
+    return bundleId && displayName ? { bundleId, displayName } : null;
   });
 
   ipcMain.handle(
-    'app:setTargetApp', (_, appName: string) => {
-      setTargetApp(appName);
+    'app:setTargetApp',
+    (
+      _,
+      { bundleId, displayName }: { bundleId: string; displayName: string }
+    ) => {
+      setTargetApp(bundleId, displayName);
       return { ok: true };
     }
   );
