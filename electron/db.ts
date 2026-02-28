@@ -4,6 +4,8 @@ import { app } from 'electron';
 
 let db: Database.Database | null = null;
 
+export const DAY_START_TARGET_APP = 'day_start';
+
 export function getTomorrowDateStr(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -82,6 +84,34 @@ export function getDeliverAfterMinutes(): number | null {
 
 export function setDeliverAfterMinutes(minutes: number): void {
   setSetting(DELIVER_AFTER_MINUTES_KEY, String(minutes));
+}
+
+const LAUNCH_AT_LOGIN_KEY = 'launch_at_login';
+
+export function getLaunchAtLogin(): boolean {
+  const val = getSetting(LAUNCH_AT_LOGIN_KEY);
+  return val === 'true';
+}
+
+export function setLaunchAtLogin(enabled: boolean): void {
+  setSetting(LAUNCH_AT_LOGIN_KEY, enabled ? 'true' : 'false');
+}
+
+export function getDeliveryMode(): 'on_app' | 'on_day_start' {
+  const val = getSetting('delivery_mode');
+  return val === 'on_day_start' ? 'on_day_start' : 'on_app';
+}
+
+export function setDeliveryMode(mode: 'on_app' | 'on_day_start'): void {
+  setSetting('delivery_mode', mode);
+}
+
+export function getLastDayStartDeliverDate(): string | null {
+  return getSetting('last_day_start_deliver_date');
+}
+
+export function setLastDayStartDeliverDate(dateStr: string): void {
+  setSetting('last_day_start_deliver_date', dateStr);
 }
 
 export function getNoteForDate(

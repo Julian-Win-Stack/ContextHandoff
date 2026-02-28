@@ -52,6 +52,10 @@ function App() {
   const [deliverAfterTime, setDeliverAfterTime] = useState<string | null>(
     null
   );
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<
+    'on_app' | 'on_day_start'
+  >('on_app');
 
   useEffect(() => {
     window.ipcRenderer
@@ -77,6 +81,18 @@ function App() {
   }, []);
 
   useEffect(() => {
+    window.ipcRenderer
+      .invoke('settings:getLaunchAtLogin')
+      .then((enabled: boolean) => setLaunchAtLogin(enabled));
+  }, []);
+
+  useEffect(() => {
+    window.ipcRenderer
+      .invoke('settings:getDeliveryMode')
+      .then((mode: 'on_app' | 'on_day_start') => setDeliveryMode(mode));
+  }, []);
+
+  useEffect(() => {
     const channel = deliverToday
       ? 'db:getNoteForToday'
       : 'db:getNoteForTomorrow';
@@ -85,10 +101,14 @@ function App() {
       .then((result: { note_text: string } | null) => {
         setNote(result?.note_text ?? '');
       });
-  }, [deliverToday, targetAppBundleId]);
+  }, [deliverToday, deliveryMode]);
 
   async function handleSelectCurrentApp() {
     setSelectError(null);
+    if (deliveryMode === 'on_day_start') {
+      setSelectError('Disable reminder at the start of the day first');
+      return;
+    }
     const lastActive = (await window.ipcRenderer.invoke(
       'app:getLastActiveApp'
     )) as { bundleId: string; displayName: string };
@@ -108,6 +128,10 @@ function App() {
 
   async function handleSelectAppFromPicker() {
     setSelectError(null);
+    if (deliveryMode === 'on_day_start') {
+      setSelectError('Disable reminder at the start of the day first');
+      return;
+    }
     const picked = (await window.ipcRenderer.invoke(
       'app:pickAppFromFinder'
     )) as { bundleId: string; displayName: string } | null;
@@ -133,7 +157,9 @@ function App() {
   }
 
   async function handleSave() {
-    if (!targetAppBundleId || !deliverAfterTime) return;
+    const targetApp =
+      deliveryMode === 'on_day_start' ? 'day_start' : targetAppBundleId;
+    if (!targetApp || !deliverAfterTime) return;
     if (!note.trim()) {
       setNoteError('Please enter a note.');
       return;
@@ -142,7 +168,7 @@ function App() {
     setSaving(true);
     const channel = deliverToday ? 'db:upsertForToday' : 'db:upsertForTomorrow';
     await window.ipcRenderer.invoke(channel, {
-      targetApp: targetAppBundleId,
+      targetApp,
       noteText: note,
     });
     setSaving(false);
@@ -196,7 +222,9 @@ function App() {
             className="editor-save"
             onClick={handleSave}
             disabled={
-              saving || !targetAppBundleId || !deliverAfterTime
+              saving ||
+              !deliverAfterTime ||
+              (deliveryMode === 'on_app' && !targetAppBundleId)
             }
           >
             {saving
@@ -217,30 +245,94 @@ function App() {
         {saved && <p className="editor-feedback">Saved!</p>}
       </div>
       <div className="editor-target">
-        {targetAppDisplayName ? (
+        <p className="editor-delivery-mode-label">
+          Deliver reminder when…
+        </p>
+        <div className="editor-delivery-mode">
+          <label className="editor-delivery-mode-option">
+            <input
+              type="radio"
+              name="delivery-mode"
+              checked={deliveryMode === 'on_app'}
+              onChange={() => {
+                setDeliveryMode('on_app');
+                setSelectError(null);
+                window.ipcRenderer.invoke('settings:setDeliveryMode', 'on_app');
+              }}
+            />
+            I open a specific app
+          </label>
+          <label className="editor-delivery-mode-option">
+            <input
+              type="radio"
+              name="delivery-mode"
+              checked={deliveryMode === 'on_day_start'}
+              onChange={() => {
+                setDeliveryMode('on_day_start');
+                setSelectError(null);
+                window.ipcRenderer.invoke(
+                  'settings:setDeliveryMode',
+                  'on_day_start'
+                );
+              }}
+            />
+            I unlock my Mac (start of day)
+          </label>
+        </div>
+        {deliveryMode === 'on_day_start' ? (
+          <p className="editor-target-label">Day start</p>
+        ) : targetAppDisplayName ? (
           <p className="editor-target-label">
             Current app: <strong>{targetAppDisplayName}</strong>
           </p>
         ) : (
           <p className="editor-target-label">App not selected</p>
         )}
-        <button
-          type="button"
-          className="editor-select-app"
-          onClick={handleSelectCurrentApp}
+        <div
+          className={
+            deliveryMode === 'on_day_start'
+              ? 'editor-select-app-wrapper editor-select-app-wrapper--disabled'
+              : 'editor-select-app-wrapper'
+          }
+          onClick={
+            deliveryMode === 'on_day_start'
+              ? () => setSelectError('Disable reminder at the start of the day first')
+              : undefined
+          }
+          role={deliveryMode === 'on_day_start' ? 'button' : undefined}
         >
-          Select current app
-        </button>
-        <button
-          type="button"
-          className="editor-select-app"
-          onClick={handleSelectAppFromPicker}
-        >
-          Select app
-        </button>
+          <button
+            type="button"
+            className="editor-select-app"
+            onClick={handleSelectCurrentApp}
+            disabled={deliveryMode === 'on_day_start'}
+          >
+            Select current app
+          </button>
+          <button
+            type="button"
+            className="editor-select-app"
+            onClick={handleSelectAppFromPicker}
+            disabled={deliveryMode === 'on_day_start'}
+          >
+            Select app
+          </button>
+        </div>
         {selectError && (
           <p className="editor-select-error">{selectError}</p>
         )}
+        <label className="editor-launch-at-login">
+          <input
+            type="checkbox"
+            checked={launchAtLogin}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              setLaunchAtLogin(enabled);
+              window.ipcRenderer.invoke('settings:setLaunchAtLogin', enabled);
+            }}
+          />
+          Launch at login (recommended)
+        </label>
       </div>
     </div>
   );

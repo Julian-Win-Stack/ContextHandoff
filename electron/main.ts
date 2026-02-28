@@ -5,6 +5,7 @@ import {
   nativeImage,
   ipcMain,
   dialog,
+  powerMonitor,
 } from 'electron';
 import activeWindow from 'active-win';
 import {
@@ -21,6 +22,13 @@ import {
   setTargetApp,
   getDeliverAfterMinutes,
   setDeliverAfterMinutes,
+  getLaunchAtLogin,
+  setLaunchAtLogin,
+  getDeliveryMode,
+  setDeliveryMode,
+  getLastDayStartDeliverDate,
+  setLastDayStartDeliverDate,
+  DAY_START_TARGET_APP,
 } from './db';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -98,23 +106,21 @@ function getIconPath() {
   throw new Error(`Tray icon not found. Tried:\n${publicPath}\n${distPath}`);
 }
 
-function getEligibleNoteForToday(): {
-  id: number;
-  note_text: string;
-} | null {
+function maybeDeliverNote(targetApp: string): boolean {
   const deliverAfter = getDeliverAfterMinutes();
-  if (deliverAfter === null) return null;
+  if (deliverAfter === null) return false;
 
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  if (nowMinutes < deliverAfter) return null;
-
-  const targetApp = getTargetApp(); 
-  if (!targetApp) return null;
+  if (nowMinutes < deliverAfter) return false;
 
   const today = getTodayDateStr();
   const note = getUndeliveredNoteForDate(targetApp, today);
-  return note ? { id: note.id, note_text: note.note_text } : null;
+  if (!note) return false;
+
+  createOverlayWindow(note);
+  markNoteAsDelivered(note.id);
+  return true;
 }
 
 function createOverlayWindow(note: { id: number; note_text: string }) {
@@ -182,10 +188,14 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock.hide();
   initDb();
   createTray();
+  if (process.platform === 'darwin') {
+    app.setLoginItemSettings({ openAtLogin: getLaunchAtLogin() });
+  }
 
   let previousApp = '';
   setInterval(async () => {
     try {
+      if (getDeliveryMode() !== 'on_app') return;
       const targetApp = getTargetApp();
       if (!targetApp) return;
 
@@ -197,11 +207,7 @@ app.whenReady().then(() => {
         active?.platform === 'macos' ? active.owner.bundleId ?? '' : '';
       if (currentApp !== previousApp) {
         if (currentApp === targetApp) {
-          const note = getEligibleNoteForToday();
-          if (note) {
-            createOverlayWindow(note);
-            markNoteAsDelivered(note.id);
-          }
+          maybeDeliverNote(targetApp);
         }
         previousApp = currentApp;
       }
@@ -209,6 +215,15 @@ app.whenReady().then(() => {
       console.error('[frontmost poll]', err);
     }
   }, 500);
+
+  powerMonitor.on('unlock-screen', () => {
+    if (getDeliveryMode() !== 'on_day_start') return; 
+    const today = getTodayDateStr();
+    if (getLastDayStartDeliverDate() === today) return;
+    if (maybeDeliverNote(DAY_START_TARGET_APP)) {
+      setLastDayStartDeliverDate(today);
+    }
+  });
 
   ipcMain.handle(
     'db:upsertForTomorrow',
@@ -227,14 +242,20 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle('db:getNoteForTomorrow', () => {
-    const targetApp = getTargetApp();
+    const targetApp =
+      getDeliveryMode() === 'on_day_start'
+        ? DAY_START_TARGET_APP
+        : getTargetApp();
     if (!targetApp) return null;
     const tomorrow = getTomorrowDateStr();
     return getNoteForDate(targetApp, tomorrow);
   });
 
   ipcMain.handle('db:getNoteForToday', () => {
-    const targetApp = getTargetApp();
+    const targetApp =
+      getDeliveryMode() === 'on_day_start'
+        ? DAY_START_TARGET_APP
+        : getTargetApp();
     if (!targetApp) return null;
     const today = getTodayDateStr();
     return getNoteForDate(targetApp, today);
@@ -252,6 +273,33 @@ app.whenReady().then(() => {
     'settings:setDeliverAfterMinutes',
     (_, minutes: number) => {
       setDeliverAfterMinutes(minutes);
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle('settings:getLaunchAtLogin', () => {
+    return getLaunchAtLogin();
+  });
+
+  ipcMain.handle(
+    'settings:setLaunchAtLogin',
+    (_, enabled: boolean) => {
+      setLaunchAtLogin(enabled);
+      if (process.platform === 'darwin') {
+        app.setLoginItemSettings({ openAtLogin: enabled });
+      }
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle('settings:getDeliveryMode', () => {
+    return getDeliveryMode();
+  });
+
+  ipcMain.handle(
+    'settings:setDeliveryMode',
+    (_, mode: 'on_app' | 'on_day_start') => {
+      setDeliveryMode(mode);
       return { ok: true };
     }
   );

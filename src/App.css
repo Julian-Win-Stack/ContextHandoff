@@ -18,6 +18,46 @@
   gap: 0.5rem;
 }
 
+.editor-delivery-mode-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.editor-delivery-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.editor-delivery-mode-option {
+  font-size: 0.875rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+}
+
+.editor-delivery-mode-option input {
+  cursor: pointer;
+}
+
+.editor-select-app-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.editor-select-app-wrapper--disabled {
+  cursor: pointer;
+}
+
+.editor-select-app-wrapper--disabled .editor-select-app:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .editor-target-label {
   margin: 0;
   font-size: 0.75rem;
@@ -154,6 +194,19 @@
 }
 
 .editor-deliver-today input {
+  cursor: pointer;
+}
+
+.editor-launch-at-login {
+  font-size: 0.875rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+}
+
+.editor-launch-at-login input {
   cursor: pointer;
 }
 
