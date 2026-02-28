@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, nativeImage, Tray } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, Tray } from "electron";
 import activeWindow from "active-win";
 import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 let db = null;
 function getTomorrowDateStr() {
   const d = /* @__PURE__ */ new Date();
@@ -34,13 +35,6 @@ function initDb() {
       value TEXT NOT NULL
     )
   `);
-  const currentTarget = getSetting("target_app");
-  if (currentTarget && !currentTarget.includes(".")) {
-    const deleteStmt = db.prepare(
-      `DELETE FROM app_settings WHERE key IN ('target_app', 'target_app_display_name')`
-    );
-    deleteStmt.run();
-  }
   return db;
 }
 function getSetting(key) {
@@ -57,12 +51,10 @@ function setSetting(key, value) {
   stmt.run(key, value);
 }
 function getTargetApp() {
-  const value = getSetting("target_app");
-  return value || null;
+  return getSetting("target_app");
 }
 function getTargetAppDisplayName() {
-  const value = getSetting("target_app_display_name");
-  return value || null;
+  return getSetting("target_app_display_name");
 }
 function setTargetApp(bundleId, displayName) {
   setSetting("target_app", bundleId);
@@ -133,7 +125,17 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win = null;
 let tray = null;
 let pendingOverlayNote = null;
-let lastActiveAppBeforeEditorOpen = null;
+let lastActiveAppBeforeEditorOpen = { bundleId: "", displayName: "" };
+function readPlistString(plistPath, key) {
+  try {
+    return execSync(
+      `/usr/libexec/PlistBuddy -c "Print :${key}" "${plistPath}"`,
+      { encoding: "utf8" }
+    ).trim();
+  } catch {
+    return null;
+  }
+}
 function createTray() {
   const iconPath = getIconPath();
   const icon = nativeImage.createFromPath(iconPath);
@@ -141,11 +143,16 @@ function createTray() {
   tray = new Tray(icon.isEmpty() ? iconPath : icon);
   tray.setToolTip("Context HandOff");
   tray.on("click", async () => {
-    const active = await activeWindow();
-    const owner = active == null ? void 0 : active.owner;
-    const bundleId = (owner == null ? void 0 : owner.bundleId) ?? "";
-    const displayName = (owner == null ? void 0 : owner.name) ?? "";
-    lastActiveAppBeforeEditorOpen = bundleId && displayName ? { bundleId, displayName } : null;
+    var _a;
+    const active = await activeWindow({
+      screenRecordingPermission: false,
+      accessibilityPermission: false
+    });
+    const bundleId = (active == null ? void 0 : active.platform) === "macos" ? active.owner.bundleId ?? "" : "";
+    lastActiveAppBeforeEditorOpen = {
+      bundleId,
+      displayName: ((_a = active == null ? void 0 : active.owner) == null ? void 0 : _a.name) ?? ""
+    };
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
@@ -237,18 +244,20 @@ app.whenReady().then(() => {
     try {
       const targetApp = getTargetApp();
       if (!targetApp) return;
-      const active = await activeWindow();
-      const owner = active == null ? void 0 : active.owner;
-      const currentBundleId = (owner == null ? void 0 : owner.bundleId) ?? "";
-      if (currentBundleId !== previousApp) {
-        if (currentBundleId === targetApp) {
+      const active = await activeWindow({
+        screenRecordingPermission: false,
+        accessibilityPermission: false
+      });
+      const currentApp = (active == null ? void 0 : active.platform) === "macos" ? active.owner.bundleId ?? "" : "";
+      if (currentApp !== previousApp) {
+        if (currentApp === targetApp) {
           const note = getEligibleNoteForToday();
           if (note) {
             createOverlayWindow(note);
             markNoteAsDelivered(note.id);
           }
         }
-        previousApp = currentBundleId;
+        previousApp = currentApp;
       }
     } catch (err) {
       console.error("[frontmost poll]", err);
@@ -256,15 +265,15 @@ app.whenReady().then(() => {
   }, 500);
   ipcMain.handle(
     "db:upsertForTomorrow",
-    (_, { targetApp: bundleId, noteText }) => {
-      upsertNoteForTomorrow(bundleId, noteText);
+    (_, { targetApp, noteText }) => {
+      upsertNoteForTomorrow(targetApp, noteText);
       return { ok: true };
     }
   );
   ipcMain.handle(
     "db:upsertForToday",
-    (_, { targetApp: bundleId, noteText }) => {
-      upsertNoteForToday(bundleId, noteText);
+    (_, { targetApp, noteText }) => {
+      upsertNoteForToday(targetApp, noteText);
       return { ok: true };
     }
   );
@@ -287,9 +296,10 @@ app.whenReady().then(() => {
     return lastActiveAppBeforeEditorOpen;
   });
   ipcMain.handle("app:getTargetApp", () => {
-    const bundleId = getTargetApp();
-    const displayName = getTargetAppDisplayName();
-    return bundleId && displayName ? { bundleId, displayName } : null;
+    return {
+      bundleId: getTargetApp(),
+      displayName: getTargetAppDisplayName()
+    };
   });
   ipcMain.handle(
     "app:setTargetApp",
@@ -298,6 +308,25 @@ app.whenReady().then(() => {
       return { ok: true };
     }
   );
+  ipcMain.handle("app:pickAppFromFinder", async () => {
+    const result = win ? await dialog.showOpenDialog(win, {
+      defaultPath: "/Applications",
+      properties: ["openFile", "openDirectory"],
+      title: "Select an app"
+    }) : await dialog.showOpenDialog({
+      defaultPath: "/Applications",
+      properties: ["openFile", "openDirectory"],
+      title: "Select an app"
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const appPath = result.filePaths[0];
+    const plistPath = path.join(appPath, "Contents", "Info.plist");
+    if (!fs.existsSync(plistPath)) return null;
+    const bundleId = readPlistString(plistPath, "CFBundleIdentifier");
+    if (!bundleId) return null;
+    const displayName = readPlistString(plistPath, "CFBundleDisplayName") ?? readPlistString(plistPath, "CFBundleName") ?? path.basename(appPath, ".app");
+    return { bundleId, displayName };
+  });
 });
 export {
   MAIN_DIST,

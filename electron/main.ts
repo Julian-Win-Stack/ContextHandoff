@@ -1,4 +1,11 @@
-import { app, BrowserWindow, Tray, nativeImage, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  nativeImage,
+  ipcMain,
+  dialog,
+} from 'electron';
 import activeWindow from 'active-win';
 import {
   initDb,
@@ -16,6 +23,7 @@ import {
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 (globalThis as any).__filename = fileURLToPath(import.meta.url);
@@ -31,7 +39,21 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingOverlayNote: { id: number; note_text: string } | null = null;
-let lastActiveAppBeforeEditorOpen: { bundleId: string; displayName: string } | null = null;
+let lastActiveAppBeforeEditorOpen: {
+  bundleId: string;
+  displayName: string;
+} = { bundleId: '', displayName: '' };
+
+function readPlistString(plistPath: string, key: string): string | null {
+  try {
+    return execSync(
+      `/usr/libexec/PlistBuddy -c "Print :${key}" "${plistPath}"`,
+      { encoding: 'utf8' }
+    ).trim();
+  } catch {
+    return null;
+  }
+}
 
 function createTray() {
   const iconPath = getIconPath();
@@ -42,12 +64,16 @@ function createTray() {
   tray.setToolTip('Context HandOff');
 
   tray.on('click', async () => {
-    const active = await activeWindow();
-    const owner = active?.owner as { name?: string; bundleId?: string } | undefined;
-    const bundleId = owner?.bundleId ?? '';
-    const displayName = owner?.name ?? '';
-    lastActiveAppBeforeEditorOpen =
-      bundleId && displayName ? { bundleId, displayName } : null;
+    const active = await activeWindow({
+      screenRecordingPermission: false,
+      accessibilityPermission: false,
+    });
+    const bundleId =
+      active?.platform === 'macos' ? active.owner.bundleId ?? '' : '';
+    lastActiveAppBeforeEditorOpen = {
+      bundleId,
+      displayName: active?.owner?.name ?? '',
+    };
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
@@ -159,18 +185,21 @@ app.whenReady().then(() => {
       const targetApp = getTargetApp();
       if (!targetApp) return;
 
-      const active = await activeWindow();
-      const owner = active?.owner as { bundleId?: string } | undefined;
-      const currentBundleId = owner?.bundleId ?? '';
-      if (currentBundleId !== previousApp) {
-        if (currentBundleId === targetApp) {
+      const active = await activeWindow({
+        screenRecordingPermission: false,
+        accessibilityPermission: false,
+      });
+      const currentApp =
+        active?.platform === 'macos' ? active.owner.bundleId ?? '' : '';
+      if (currentApp !== previousApp) {
+        if (currentApp === targetApp) {
           const note = getEligibleNoteForToday();
           if (note) {
             createOverlayWindow(note);
             markNoteAsDelivered(note.id);
           }
         }
-        previousApp = currentBundleId;
+        previousApp = currentApp;
       }
     } catch (err) {
       console.error('[frontmost poll]', err);
@@ -179,16 +208,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'db:upsertForTomorrow',
-    (_, { targetApp: bundleId, noteText }: { targetApp: string; noteText: string }) => {
-      upsertNoteForTomorrow(bundleId, noteText);
+    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForTomorrow(targetApp, noteText);
       return { ok: true };
     }
   );
 
   ipcMain.handle(
     'db:upsertForToday',
-    (_, { targetApp: bundleId, noteText }: { targetApp: string; noteText: string }) => {
-      upsertNoteForToday(bundleId, noteText);
+    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForToday(targetApp, noteText);
       return { ok: true };
     }
   );
@@ -216,9 +245,10 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('app:getTargetApp', () => {
-    const bundleId = getTargetApp();
-    const displayName = getTargetAppDisplayName();
-    return bundleId && displayName ? { bundleId, displayName } : null;
+    return {
+      bundleId: getTargetApp(),
+      displayName: getTargetAppDisplayName(),
+    };
   });
 
   ipcMain.handle(
@@ -231,4 +261,29 @@ app.whenReady().then(() => {
       return { ok: true };
     }
   );
+
+  ipcMain.handle('app:pickAppFromFinder', async () => {
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          defaultPath: '/Applications',
+          properties: ['openFile', 'openDirectory'],
+          title: 'Select an app',
+        })
+      : await dialog.showOpenDialog({
+          defaultPath: '/Applications',
+          properties: ['openFile', 'openDirectory'],
+          title: 'Select an app',
+        });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const appPath = result.filePaths[0];
+    const plistPath = path.join(appPath, 'Contents', 'Info.plist');
+    if (!fs.existsSync(plistPath)) return null;
+    const bundleId = readPlistString(plistPath, 'CFBundleIdentifier');
+    if (!bundleId) return null;
+    const displayName =
+      readPlistString(plistPath, 'CFBundleDisplayName') ??
+      readPlistString(plistPath, 'CFBundleName') ??
+      path.basename(appPath, '.app');
+    return { bundleId, displayName };
+  });
 });

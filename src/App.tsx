@@ -27,17 +27,22 @@ function App() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deliverToday, setDeliverToday] = useState(false);
-  const [targetApp, setTargetApp] = useState<{
-    bundleId: string;
-    displayName: string;
-  } | null>(null);
+  const [targetAppBundleId, setTargetAppBundleId] = useState<string | null>(
+    null
+  );
+  const [targetAppDisplayName, setTargetAppDisplayName] = useState<
+    string | null
+  >(null);
   const [selectError, setSelectError] = useState<string | null>(null);
 
   useEffect(() => {
     window.ipcRenderer
       .invoke('app:getTargetApp')
-      .then((result: { bundleId: string; displayName: string } | null) =>
-        setTargetApp(result)
+      .then(
+        (res: { bundleId: string | null; displayName: string | null }) => {
+          setTargetAppBundleId(res?.bundleId ?? null);
+          setTargetAppDisplayName(res?.displayName ?? null);
+        }
       );
   }, []);
 
@@ -50,29 +55,44 @@ function App() {
       .then((result: { note_text: string } | null) => {
         setNote(result?.note_text ?? '');
       });
-  }, [deliverToday, targetApp]);
+  }, [deliverToday, targetAppBundleId]);
 
   async function handleSelectCurrentApp() {
     setSelectError(null);
     const lastActive = (await window.ipcRenderer.invoke(
       'app:getLastActiveApp'
-    )) as { bundleId: string; displayName: string } | null;
-    if (!lastActive) {
+    )) as { bundleId: string; displayName: string };
+    if (!lastActive?.bundleId) {
       setSelectError(
         'No app detected. Open the editor from the app you want to select.'
       );
       return;
     }
-    await window.ipcRenderer.invoke('app:setTargetApp', lastActive);
-    setTargetApp(lastActive);
+    await window.ipcRenderer.invoke('app:setTargetApp', {
+      bundleId: lastActive.bundleId,
+      displayName: lastActive.displayName,
+    });
+    setTargetAppBundleId(lastActive.bundleId);
+    setTargetAppDisplayName(lastActive.displayName);
+  }
+
+  async function handleSelectAppFromPicker() {
+    setSelectError(null);
+    const picked = (await window.ipcRenderer.invoke(
+      'app:pickAppFromFinder'
+    )) as { bundleId: string; displayName: string } | null;
+    if (!picked?.bundleId) return;
+    await window.ipcRenderer.invoke('app:setTargetApp', picked);
+    setTargetAppBundleId(picked.bundleId);
+    setTargetAppDisplayName(picked.displayName);
   }
 
   async function handleSave() {
-    if (!targetApp) return;
+    if (!targetAppBundleId) return;
     setSaving(true);
     const channel = deliverToday ? 'db:upsertForToday' : 'db:upsertForTomorrow';
     await window.ipcRenderer.invoke(channel, {
-      targetApp: targetApp.bundleId,
+      targetApp: targetAppBundleId,
       noteText: note,
     });
     setSaving(false);
@@ -99,7 +119,7 @@ function App() {
             type="button"
             className="editor-save"
             onClick={handleSave}
-            disabled={saving || !targetApp}
+            disabled={saving || !targetAppBundleId}
           >
             {saving
               ? 'Saving...'
@@ -121,10 +141,9 @@ function App() {
         {saved && <p className="editor-feedback">Saved!</p>}
       </div>
       <div className="editor-target">
-        {targetApp ? (
+        {targetAppDisplayName ? (
           <p className="editor-target-label">
-            Notifications will show when you switch to{' '}
-            <strong>{targetApp.displayName}</strong>.
+            Current app: <strong>{targetAppDisplayName}</strong>
           </p>
         ) : (
           <p className="editor-target-label">App not selected</p>
@@ -135,6 +154,13 @@ function App() {
           onClick={handleSelectCurrentApp}
         >
           Select current app
+        </button>
+        <button
+          type="button"
+          className="editor-select-app"
+          onClick={handleSelectAppFromPicker}
+        >
+          Select app
         </button>
         {selectError && (
           <p className="editor-select-error">{selectError}</p>
