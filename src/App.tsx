@@ -48,6 +48,7 @@ function App() {
     string | null
   >(null);
   const [selectError, setSelectError] = useState<string | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [deliverAfterTime, setDeliverAfterTime] = useState<string | null>(
     null
   );
@@ -133,6 +134,11 @@ function App() {
 
   async function handleSave() {
     if (!targetAppBundleId || !deliverAfterTime) return;
+    if (!note.trim()) {
+      setNoteError('Please enter a note.');
+      return;
+    }
+    setNoteError(null);
     setSaving(true);
     const channel = deliverToday ? 'db:upsertForToday' : 'db:upsertForTomorrow';
     await window.ipcRenderer.invoke(channel, {
@@ -155,9 +161,15 @@ function App() {
         <textarea
           placeholder="Write your note for tomorrow..."
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={(e) => {
+            setNote(e.target.value);
+            setNoteError(null);
+          }}
           rows={8}
         />
+        {noteError && (
+          <p className="editor-note-error">{noteError}</p>
+        )}
         <div className="editor-delivery-section">
           <label htmlFor="deliver-after" className="editor-delivery-label">
             Deliver after

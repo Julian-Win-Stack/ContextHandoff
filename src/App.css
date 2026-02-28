@@ -67,6 +67,12 @@
   border-color: #646cff;
 }
 
+.editor-note-error {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.75rem;
+  color: #e11d48;
+}
+
 .editor-delivery {
   margin: 0 0 0.5rem 0;
   font-size: 0.75rem;
