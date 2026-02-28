@@ -320,6 +320,7 @@ app.whenReady().then(() => {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     const appPath = result.filePaths[0];
+    if (!appPath.toLowerCase().endsWith(".app")) return null;
     const plistPath = path.join(appPath, "Contents", "Info.plist");
     if (!fs.existsSync(plistPath)) return null;
     const bundleId = readPlistString(plistPath, "CFBundleIdentifier");

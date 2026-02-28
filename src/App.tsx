@@ -81,7 +81,10 @@ function App() {
     const picked = (await window.ipcRenderer.invoke(
       'app:pickAppFromFinder'
     )) as { bundleId: string; displayName: string } | null;
-    if (!picked?.bundleId) return;
+    if (!picked?.bundleId) {
+      setSelectError('Please select an application (.app)');
+      return;
+    }
     await window.ipcRenderer.invoke('app:setTargetApp', picked);
     setTargetAppBundleId(picked.bundleId);
     setTargetAppDisplayName(picked.displayName);
