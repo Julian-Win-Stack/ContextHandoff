@@ -60,6 +60,16 @@ function setTargetApp(bundleId, displayName) {
   setSetting("target_app", bundleId);
   setSetting("target_app_display_name", displayName);
 }
+const DELIVER_AFTER_MINUTES_KEY = "deliver_after_minutes";
+function getDeliverAfterMinutes() {
+  const val = getSetting(DELIVER_AFTER_MINUTES_KEY);
+  if (val === null) return null;
+  const n = parseInt(val, 10);
+  return isNaN(n) ? null : n;
+}
+function setDeliverAfterMinutes(minutes) {
+  setSetting(DELIVER_AFTER_MINUTES_KEY, String(minutes));
+}
 function getNoteForDate(targetApp, deliverOnDate) {
   if (!db) throw new Error("Database not initialized. Call initDb() first.");
   const stmt = db.prepare(`
@@ -98,21 +108,6 @@ function upsertNoteForTomorrow(targetApp, noteText) {
     VALUES (?, ?, ?)
   `);
   const result = insertStmt.run(targetApp, tomorrow, noteText);
-  return result.lastInsertRowid;
-}
-function upsertNoteForToday(targetApp, noteText) {
-  if (!db) throw new Error("Database not initialized. Call initDb() first.");
-  const today = getTodayDateStr();
-  const deleteStmt = db.prepare(`
-    DELETE FROM handoff_notes
-    WHERE target_app = ? AND deliver_on_date = ?
-  `);
-  deleteStmt.run(targetApp, today);
-  const insertStmt = db.prepare(`
-    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
-    VALUES (?, ?, ?)
-  `);
-  const result = insertStmt.run(targetApp, today, noteText);
   return result.lastInsertRowid;
 }
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
@@ -172,10 +167,12 @@ function getIconPath() {
 ${publicPath}
 ${distPath}`);
 }
-const MORNING_START_HOUR = 5;
 function getEligibleNoteForToday() {
+  const deliverAfter = getDeliverAfterMinutes();
+  if (deliverAfter === null) return null;
   const now = /* @__PURE__ */ new Date();
-  if (now.getHours() < MORNING_START_HOUR) return null;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  if (nowMinutes < deliverAfter) return null;
   const targetApp = getTargetApp();
   if (!targetApp) return null;
   const today = getTodayDateStr();
@@ -270,28 +267,25 @@ app.whenReady().then(() => {
       return { ok: true };
     }
   );
-  ipcMain.handle(
-    "db:upsertForToday",
-    (_, { targetApp, noteText }) => {
-      upsertNoteForToday(targetApp, noteText);
-      return { ok: true };
-    }
-  );
   ipcMain.handle("db:getNoteForTomorrow", () => {
     const targetApp = getTargetApp();
     if (!targetApp) return null;
     const tomorrow = getTomorrowDateStr();
     return getNoteForDate(targetApp, tomorrow);
   });
-  ipcMain.handle("db:getNoteForToday", () => {
-    const targetApp = getTargetApp();
-    if (!targetApp) return null;
-    const today = getTodayDateStr();
-    return getNoteForDate(targetApp, today);
-  });
   ipcMain.handle("overlay:getNote", () => {
     return pendingOverlayNote;
   });
+  ipcMain.handle("settings:getDeliverAfterMinutes", () => {
+    return getDeliverAfterMinutes();
+  });
+  ipcMain.handle(
+    "settings:setDeliverAfterMinutes",
+    (_, minutes) => {
+      setDeliverAfterMinutes(minutes);
+      return { ok: true };
+    }
+  );
   ipcMain.handle("app:getLastActiveApp", () => {
     return lastActiveAppBeforeEditorOpen;
   });

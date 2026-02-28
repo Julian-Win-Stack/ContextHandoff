@@ -10,7 +10,6 @@ import activeWindow from 'active-win';
 import {
   initDb,
   upsertNoteForTomorrow,
-  upsertNoteForToday,
   getNoteForDate,
   getTomorrowDateStr,
   getTodayDateStr,
@@ -19,6 +18,8 @@ import {
   getTargetApp,
   getTargetAppDisplayName,
   setTargetApp,
+  getDeliverAfterMinutes,
+  setDeliverAfterMinutes,
 } from './db';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -96,14 +97,16 @@ function getIconPath() {
   throw new Error(`Tray icon not found. Tried:\n${publicPath}\n${distPath}`);
 }
 
-const MORNING_START_HOUR = 5;
-
 function getEligibleNoteForToday(): {
   id: number;
   note_text: string;
 } | null {
+  const deliverAfter = getDeliverAfterMinutes();
+  if (deliverAfter === null) return null;
+
   const now = new Date();
-  if (now.getHours() < MORNING_START_HOUR) return null;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  if (nowMinutes < deliverAfter) return null;
 
   const targetApp = getTargetApp(); 
   if (!targetApp) return null;
@@ -214,14 +217,6 @@ app.whenReady().then(() => {
     }
   );
 
-  ipcMain.handle(
-    'db:upsertForToday',
-    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
-      upsertNoteForToday(targetApp, noteText);
-      return { ok: true };
-    }
-  );
-
   ipcMain.handle('db:getNoteForTomorrow', () => {
     const targetApp = getTargetApp();
     if (!targetApp) return null;
@@ -229,16 +224,21 @@ app.whenReady().then(() => {
     return getNoteForDate(targetApp, tomorrow);
   });
 
-  ipcMain.handle('db:getNoteForToday', () => {
-    const targetApp = getTargetApp();
-    if (!targetApp) return null;
-    const today = getTodayDateStr();
-    return getNoteForDate(targetApp, today);
-  });
-
   ipcMain.handle('overlay:getNote', () => {
     return pendingOverlayNote;
   });
+
+  ipcMain.handle('settings:getDeliverAfterMinutes', () => {
+    return getDeliverAfterMinutes();
+  });
+
+  ipcMain.handle(
+    'settings:setDeliverAfterMinutes',
+    (_, minutes: number) => {
+      setDeliverAfterMinutes(minutes);
+      return { ok: true };
+    }
+  );
 
   ipcMain.handle('app:getLastActiveApp', () => {
     return lastActiveAppBeforeEditorOpen;

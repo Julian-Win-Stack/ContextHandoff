@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 
-const isDev = import.meta.env.DEV;
-
 function getTomorrowFormatted(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -13,20 +11,26 @@ function getTomorrowFormatted(): string {
   });
 }
 
-function getTodayFormatted(): string {
-  const d = new Date();
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+function minutesToHHMM(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+}
+
+function hhmmToMinutes(hhmm: string): number | null {
+  if (!hhmm || typeof hhmm !== 'string') return null;
+  const match = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = parseInt(match[1], 10);
+  const mins = parseInt(match[2], 10);
+  if (hours < 0 || hours > 23 || mins < 0 || mins > 59) return null;
+  return hours * 60 + mins;
 }
 
 function App() {
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deliverToday, setDeliverToday] = useState(false);
   const [targetAppBundleId, setTargetAppBundleId] = useState<string | null>(
     null
   );
@@ -34,6 +38,9 @@ function App() {
     string | null
   >(null);
   const [selectError, setSelectError] = useState<string | null>(null);
+  const [deliverAfterTime, setDeliverAfterTime] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     window.ipcRenderer
@@ -47,15 +54,24 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const channel = deliverToday
-      ? 'db:getNoteForToday'
-      : 'db:getNoteForTomorrow';
     window.ipcRenderer
-      .invoke(channel)
+      .invoke('settings:getDeliverAfterMinutes')
+      .then((minutes: number | null) => {
+        if (minutes === null) {
+          setDeliverAfterTime(null);
+        } else {
+          setDeliverAfterTime(minutesToHHMM(minutes));
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    window.ipcRenderer
+      .invoke('db:getNoteForTomorrow')
       .then((result: { note_text: string } | null) => {
         setNote(result?.note_text ?? '');
       });
-  }, [deliverToday, targetAppBundleId]);
+  }, [targetAppBundleId]);
 
   async function handleSelectCurrentApp() {
     setSelectError(null);
@@ -90,11 +106,22 @@ function App() {
     setTargetAppDisplayName(picked.displayName);
   }
 
+  function handleDeliverAfterChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value;
+    if (!value) {
+      setDeliverAfterTime(null);
+      return;
+    }
+    const minutes = hhmmToMinutes(value);
+    if (minutes === null) return;
+    window.ipcRenderer.invoke('settings:setDeliverAfterMinutes', minutes);
+    setDeliverAfterTime(value);
+  }
+
   async function handleSave() {
-    if (!targetAppBundleId) return;
+    if (!targetAppBundleId || !deliverAfterTime) return;
     setSaving(true);
-    const channel = deliverToday ? 'db:upsertForToday' : 'db:upsertForTomorrow';
-    await window.ipcRenderer.invoke(channel, {
+    await window.ipcRenderer.invoke('db:upsertForTomorrow', {
       targetApp: targetAppBundleId,
       noteText: note,
     });
@@ -108,8 +135,7 @@ function App() {
       <div className="editor-main">
         <h2>Context Handoff</h2>
         <p className="editor-delivery">
-          Will deliver on:{' '}
-          {deliverToday ? getTodayFormatted() : getTomorrowFormatted()}
+          Will deliver on: {getTomorrowFormatted()}
         </p>
         <textarea
           placeholder="Write your note for tomorrow..."
@@ -117,29 +143,37 @@ function App() {
           onChange={(e) => setNote(e.target.value)}
           rows={8}
         />
+        <div className="editor-delivery-section">
+          <label htmlFor="deliver-after" className="editor-delivery-label">
+            Deliver after
+          </label>
+          <input
+            id="deliver-after"
+            type="time"
+            className="editor-delivery-time"
+            value={deliverAfterTime ?? ''}
+            onChange={handleDeliverAfterChange}
+          />
+          <p className="editor-delivery-helper">
+            Note will only show after this time (local time).
+          </p>
+          {!deliverAfterTime && (
+            <p className="editor-delivery-error">
+              Please select a delivery time.
+            </p>
+          )}
+        </div>
         <div className="editor-actions">
           <button
             type="button"
             className="editor-save"
             onClick={handleSave}
-            disabled={saving || !targetAppBundleId}
+            disabled={
+              saving || !targetAppBundleId || !deliverAfterTime
+            }
           >
-            {saving
-              ? 'Saving...'
-              : deliverToday
-                ? 'Save for today'
-                : 'Save for tomorrow'}
+            {saving ? 'Saving...' : 'Save for tomorrow'}
           </button>
-          {isDev && (
-            <label className="editor-deliver-today">
-              <input
-                type="checkbox"
-                checked={deliverToday}
-                onChange={(e) => setDeliverToday(e.target.checked)}
-              />
-              Deliver today
-            </label>
-          )}
         </div>
         {saved && <p className="editor-feedback">Saved!</p>}
       </div>

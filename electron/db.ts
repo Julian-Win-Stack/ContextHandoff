@@ -71,6 +71,19 @@ export function setTargetApp(bundleId: string, displayName: string): void {
   setSetting('target_app_display_name', displayName);
 }
 
+const DELIVER_AFTER_MINUTES_KEY = 'deliver_after_minutes';
+
+export function getDeliverAfterMinutes(): number | null {
+  const val = getSetting(DELIVER_AFTER_MINUTES_KEY);
+  if (val === null) return null;
+  const n = parseInt(val, 10);
+  return isNaN(n) ? null : n;
+}
+
+export function setDeliverAfterMinutes(minutes: number): void {
+  setSetting(DELIVER_AFTER_MINUTES_KEY, String(minutes));
+}
+
 export function getNoteForDate(
   targetApp: string,
   deliverOnDate: string
@@ -158,24 +171,3 @@ export function upsertNoteForTomorrow(
   return result.lastInsertRowid as number;
 }
 
-export function upsertNoteForToday(
-  targetApp: string,
-  noteText: string
-): number {
-  if (!db) throw new Error('Database not initialized. Call initDb() first.');
-
-  const today = getTodayDateStr();
-
-  const deleteStmt = db.prepare(`
-    DELETE FROM handoff_notes
-    WHERE target_app = ? AND deliver_on_date = ?
-  `);
-  deleteStmt.run(targetApp, today);
-
-  const insertStmt = db.prepare(`
-    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
-    VALUES (?, ?, ?)
-  `);
-  const result = insertStmt.run(targetApp, today, noteText);
-  return result.lastInsertRowid as number;
-}
