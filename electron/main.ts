@@ -10,6 +10,7 @@ import activeWindow from 'active-win';
 import {
   initDb,
   upsertNoteForTomorrow,
+  upsertNoteForToday,
   getNoteForDate,
   getTomorrowDateStr,
   getTodayDateStr,
@@ -217,11 +218,26 @@ app.whenReady().then(() => {
     }
   );
 
+  ipcMain.handle(
+    'db:upsertForToday',
+    (_, { targetApp, noteText }: { targetApp: string; noteText: string }) => {
+      upsertNoteForToday(targetApp, noteText);
+      return { ok: true };
+    }
+  );
+
   ipcMain.handle('db:getNoteForTomorrow', () => {
     const targetApp = getTargetApp();
     if (!targetApp) return null;
     const tomorrow = getTomorrowDateStr();
     return getNoteForDate(targetApp, tomorrow);
+  });
+
+  ipcMain.handle('db:getNoteForToday', () => {
+    const targetApp = getTargetApp();
+    if (!targetApp) return null;
+    const today = getTodayDateStr();
+    return getNoteForDate(targetApp, today);
   });
 
   ipcMain.handle('overlay:getNote', () => {

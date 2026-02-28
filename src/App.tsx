@@ -11,6 +11,15 @@ function getTomorrowFormatted(): string {
   });
 }
 
+function getTodayFormatted(): string {
+  const d = new Date();
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 function minutesToHHMM(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
@@ -31,6 +40,7 @@ function App() {
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deliverToday, setDeliverToday] = useState(false);
   const [targetAppBundleId, setTargetAppBundleId] = useState<string | null>(
     null
   );
@@ -66,12 +76,15 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const channel = deliverToday
+      ? 'db:getNoteForToday'
+      : 'db:getNoteForTomorrow';
     window.ipcRenderer
-      .invoke('db:getNoteForTomorrow')
+      .invoke(channel)
       .then((result: { note_text: string } | null) => {
         setNote(result?.note_text ?? '');
       });
-  }, [targetAppBundleId]);
+  }, [deliverToday, targetAppBundleId]);
 
   async function handleSelectCurrentApp() {
     setSelectError(null);
@@ -121,7 +134,8 @@ function App() {
   async function handleSave() {
     if (!targetAppBundleId || !deliverAfterTime) return;
     setSaving(true);
-    await window.ipcRenderer.invoke('db:upsertForTomorrow', {
+    const channel = deliverToday ? 'db:upsertForToday' : 'db:upsertForTomorrow';
+    await window.ipcRenderer.invoke(channel, {
       targetApp: targetAppBundleId,
       noteText: note,
     });
@@ -135,7 +149,8 @@ function App() {
       <div className="editor-main">
         <h2>Context Handoff</h2>
         <p className="editor-delivery">
-          Will deliver on: {getTomorrowFormatted()}
+          Will deliver on:{' '}
+          {deliverToday ? getTodayFormatted() : getTomorrowFormatted()}
         </p>
         <textarea
           placeholder="Write your note for tomorrow..."
@@ -172,8 +187,20 @@ function App() {
               saving || !targetAppBundleId || !deliverAfterTime
             }
           >
-            {saving ? 'Saving...' : 'Save for tomorrow'}
+            {saving
+              ? 'Saving...'
+              : deliverToday
+                ? 'Save for today'
+                : 'Save for tomorrow'}
           </button>
+          <label className="editor-deliver-today">
+            <input
+              type="checkbox"
+              checked={deliverToday}
+              onChange={(e) => setDeliverToday(e.target.checked)}
+            />
+            Deliver today
+          </label>
         </div>
         {saved && <p className="editor-feedback">Saved!</p>}
       </div>

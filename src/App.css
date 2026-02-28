@@ -138,6 +138,19 @@
   cursor: not-allowed;
 }
 
+.editor-deliver-today {
+  font-size: 0.875rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+}
+
+.editor-deliver-today input {
+  cursor: pointer;
+}
+
 .editor-feedback {
   margin: 0.5rem 0 0 0;
   font-size: 0.875rem;

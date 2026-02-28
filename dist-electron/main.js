@@ -110,6 +110,21 @@ function upsertNoteForTomorrow(targetApp, noteText) {
   const result = insertStmt.run(targetApp, tomorrow, noteText);
   return result.lastInsertRowid;
 }
+function upsertNoteForToday(targetApp, noteText) {
+  if (!db) throw new Error("Database not initialized. Call initDb() first.");
+  const today = getTodayDateStr();
+  const deleteStmt = db.prepare(`
+    DELETE FROM handoff_notes
+    WHERE target_app = ? AND deliver_on_date = ?
+  `);
+  deleteStmt.run(targetApp, today);
+  const insertStmt = db.prepare(`
+    INSERT INTO handoff_notes (target_app, deliver_on_date, note_text)
+    VALUES (?, ?, ?)
+  `);
+  const result = insertStmt.run(targetApp, today, noteText);
+  return result.lastInsertRowid;
+}
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 globalThis.__filename = fileURLToPath(import.meta.url);
 process.env.APP_ROOT = path.join(__dirname$1, "..");
@@ -267,11 +282,24 @@ app.whenReady().then(() => {
       return { ok: true };
     }
   );
+  ipcMain.handle(
+    "db:upsertForToday",
+    (_, { targetApp, noteText }) => {
+      upsertNoteForToday(targetApp, noteText);
+      return { ok: true };
+    }
+  );
   ipcMain.handle("db:getNoteForTomorrow", () => {
     const targetApp = getTargetApp();
     if (!targetApp) return null;
     const tomorrow = getTomorrowDateStr();
     return getNoteForDate(targetApp, tomorrow);
+  });
+  ipcMain.handle("db:getNoteForToday", () => {
+    const targetApp = getTargetApp();
+    if (!targetApp) return null;
+    const today = getTodayDateStr();
+    return getNoteForDate(targetApp, today);
   });
   ipcMain.handle("overlay:getNote", () => {
     return pendingOverlayNote;
