@@ -183,8 +183,28 @@ function App() {
           Will deliver on:{' '}
           {deliverToday ? getTodayFormatted() : getTomorrowFormatted()}
         </p>
+        {(deliveryMode === 'on_app' && targetAppDisplayName) ||
+        deliveryMode === 'on_day_start' ? (
+          <p className="editor-delivery">
+            {deliveryMode === 'on_app' && targetAppDisplayName ? (
+              <>
+                Selected app: <strong>{targetAppDisplayName}</strong>
+              </>
+            ) : (
+              'Reminder will show at the start of the day'
+            )}
+          </p>
+        ) : (
+          <p className="editor-delivery-setup">
+            Go to Advanced settings to set up the app
+          </p>
+        )}
         <textarea
-          placeholder="Write your note for tomorrow..."
+          placeholder={
+            deliverToday
+              ? 'Write your note for today...'
+              : 'Write your note for tomorrow...'
+          }
           value={note}
           onChange={(e) => {
             setNote(e.target.value);
@@ -223,7 +243,11 @@ function App() {
               (deliveryMode === 'on_app' && !targetAppBundleId)
             }
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving
+              ? 'Saving...'
+              : deliverToday
+                ? 'Save for today'
+                : 'Save for tomorrow'}
           </button>
           <label className="editor-deliver-today">
             <input

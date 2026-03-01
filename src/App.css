@@ -169,6 +169,12 @@
   color: #9ca3af;
 }
 
+.editor-delivery-setup {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.75rem;
+  color: #e11d48;
+}
+
 .editor-delivery-row {
   margin-top: 0.5rem;
   display: flex;
