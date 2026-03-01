@@ -56,6 +56,11 @@ function App() {
   const [deliveryMode, setDeliveryMode] = useState<
     'on_app' | 'on_day_start'
   >('on_app');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    window.ipcRenderer.invoke('app:resizeEditor', showAdvanced);
+  }, [showAdvanced]);
 
   useEffect(() => {
     window.ipcRenderer
@@ -105,10 +110,6 @@ function App() {
 
   async function handleSelectCurrentApp() {
     setSelectError(null);
-    if (deliveryMode === 'on_day_start') {
-      setSelectError('Disable reminder at the start of the day first');
-      return;
-    }
     const lastActive = (await window.ipcRenderer.invoke(
       'app:getLastActiveApp'
     )) as { bundleId: string; displayName: string };
@@ -128,10 +129,6 @@ function App() {
 
   async function handleSelectAppFromPicker() {
     setSelectError(null);
-    if (deliveryMode === 'on_day_start') {
-      setSelectError('Disable reminder at the start of the day first');
-      return;
-    }
     const picked = (await window.ipcRenderer.invoke(
       'app:pickAppFromFinder'
     )) as { bundleId: string; displayName: string } | null;
@@ -177,7 +174,9 @@ function App() {
   }
 
   return (
-    <div className="editor">
+    <div
+      className={`editor ${!showAdvanced ? 'editor--advanced-collapsed' : ''}`}
+    >
       <div className="editor-main">
         <h2>Context Handoff</h2>
         <p className="editor-delivery">
@@ -196,7 +195,7 @@ function App() {
         {noteError && (
           <p className="editor-note-error">{noteError}</p>
         )}
-        <div className="editor-delivery-section">
+        <div className="editor-delivery-row">
           <label htmlFor="deliver-after" className="editor-delivery-label">
             Deliver after
           </label>
@@ -207,13 +206,10 @@ function App() {
             value={deliverAfterTime ?? ''}
             onChange={handleDeliverAfterChange}
           />
-          <p className="editor-delivery-helper">
-            Note will only show after this time (local time).
-          </p>
           {!deliverAfterTime && (
-            <p className="editor-delivery-error">
+            <span className="editor-delivery-error">
               Please select a delivery time.
-            </p>
+            </span>
           )}
         </div>
         <div className="editor-actions">
@@ -227,11 +223,7 @@ function App() {
               (deliveryMode === 'on_app' && !targetAppBundleId)
             }
           >
-            {saving
-              ? 'Saving...'
-              : deliverToday
-                ? 'Save for today'
-                : 'Save for tomorrow'}
+            {saving ? 'Saving...' : 'Save'}
           </button>
           <label className="editor-deliver-today">
             <input
@@ -244,95 +236,108 @@ function App() {
         </div>
         {saved && <p className="editor-feedback">Saved!</p>}
       </div>
+      <div className="editor-divider" />
       <div className="editor-target">
-        <p className="editor-delivery-mode-label">
-          Deliver reminder when…
-        </p>
-        <div className="editor-delivery-mode">
-          <label className="editor-delivery-mode-option">
-            <input
-              type="radio"
-              name="delivery-mode"
-              checked={deliveryMode === 'on_app'}
-              onChange={() => {
-                setDeliveryMode('on_app');
-                setSelectError(null);
-                window.ipcRenderer.invoke('settings:setDeliveryMode', 'on_app');
-              }}
-            />
-            I open a specific app
-          </label>
-          <label className="editor-delivery-mode-option">
-            <input
-              type="radio"
-              name="delivery-mode"
-              checked={deliveryMode === 'on_day_start'}
-              onChange={() => {
-                setDeliveryMode('on_day_start');
-                setSelectError(null);
-                window.ipcRenderer.invoke(
-                  'settings:setDeliveryMode',
-                  'on_day_start'
-                );
-              }}
-            />
-            I unlock my Mac (start of day)
-          </label>
-        </div>
-        {deliveryMode === 'on_day_start' ? (
-          <p className="editor-target-label">Day start</p>
-        ) : targetAppDisplayName ? (
-          <p className="editor-target-label">
-            Current app: <strong>{targetAppDisplayName}</strong>
-          </p>
-        ) : (
-          <p className="editor-target-label">App not selected</p>
-        )}
         <div
-          className={
-            deliveryMode === 'on_day_start'
-              ? 'editor-select-app-wrapper editor-select-app-wrapper--disabled'
-              : 'editor-select-app-wrapper'
-          }
-          onClick={
-            deliveryMode === 'on_day_start'
-              ? () => setSelectError('Disable reminder at the start of the day first')
-              : undefined
-          }
-          role={deliveryMode === 'on_day_start' ? 'button' : undefined}
+          className="advanced-header"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setShowAdvanced((v) => !v);
+            }
+          }}
         >
-          <button
-            type="button"
-            className="editor-select-app"
-            onClick={handleSelectCurrentApp}
-            disabled={deliveryMode === 'on_day_start'}
-          >
-            Select current app
-          </button>
-          <button
-            type="button"
-            className="editor-select-app"
-            onClick={handleSelectAppFromPicker}
-            disabled={deliveryMode === 'on_day_start'}
-          >
-            Select app
-          </button>
+          Advanced {showAdvanced ? '▾' : '▸'}
         </div>
-        {selectError && (
-          <p className="editor-select-error">{selectError}</p>
+        {showAdvanced && (
+          <div className="advanced-section">
+            <p className="editor-delivery-mode-label">
+              Show reminder when…
+            </p>
+            <div className="editor-delivery-mode">
+              <label className="editor-delivery-mode-option">
+                <input
+                  type="radio"
+                  name="delivery-mode"
+                  checked={deliveryMode === 'on_app'}
+                  onChange={() => {
+                    setDeliveryMode('on_app');
+                    setSelectError(null);
+                    window.ipcRenderer.invoke(
+                      'settings:setDeliveryMode',
+                      'on_app'
+                    );
+                  }}
+                />
+                I open a specific app
+              </label>
+              <label className="editor-delivery-mode-option">
+                <input
+                  type="radio"
+                  name="delivery-mode"
+                  checked={deliveryMode === 'on_day_start'}
+                  onChange={() => {
+                    setDeliveryMode('on_day_start');
+                    setSelectError(null);
+                    window.ipcRenderer.invoke(
+                      'settings:setDeliveryMode',
+                      'on_day_start'
+                    );
+                  }}
+                />
+                I unlock my Mac (start of day)
+              </label>
+            </div>
+            {deliveryMode === 'on_app' && (
+              <>
+                {targetAppDisplayName ? (
+                  <p className="editor-target-label">
+                    Current app: <strong>{targetAppDisplayName}</strong>
+                  </p>
+                ) : (
+                  <p className="editor-target-label">App not selected</p>
+                )}
+                <div className="editor-select-app-wrapper">
+                  <button
+                    type="button"
+                    className="editor-select-app"
+                    onClick={handleSelectCurrentApp}
+                  >
+                    Select current app
+                  </button>
+                  <button
+                    type="button"
+                    className="editor-select-app"
+                    onClick={handleSelectAppFromPicker}
+                  >
+                    Select app
+                  </button>
+                </div>
+              </>
+            )}
+            {selectError && (
+              <p className="editor-select-error">{selectError}</p>
+            )}
+            <label className="editor-launch-at-login">
+              <input
+                type="checkbox"
+                checked={launchAtLogin}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setLaunchAtLogin(enabled);
+                  window.ipcRenderer.invoke(
+                    'settings:setLaunchAtLogin',
+                    enabled
+                  );
+                }}
+              />
+              Launch at login (recommended)
+            </label>
+          </div>
         )}
-        <label className="editor-launch-at-login">
-          <input
-            type="checkbox"
-            checked={launchAtLogin}
-            onChange={(e) => {
-              const enabled = e.target.checked;
-              setLaunchAtLogin(enabled);
-              window.ipcRenderer.invoke('settings:setLaunchAtLogin', enabled);
-            }}
-          />
-          Launch at login (recommended)
-        </label>
       </div>
     </div>
   );

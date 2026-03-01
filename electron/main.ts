@@ -38,6 +38,10 @@ import { execSync } from 'node:child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 (globalThis as any).__filename = fileURLToPath(import.meta.url);
 
+const EDITOR_HEIGHT = 450;
+const EDITOR_WIDTH_EXPANDED = 650;
+const EDITOR_WIDTH_COLLAPSED = 367;
+
 process.env.APP_ROOT = path.join(__dirname, '..');
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron');
@@ -153,8 +157,8 @@ function createOverlayWindow(note: { id: number; note_text: string }) {
 function createWindow() {
   win = new BrowserWindow({
     title: 'Context Handoff',
-    width: 550,
-    height: 450,
+    width: EDITOR_WIDTH_COLLAPSED,
+    height: EDITOR_HEIGHT,
     icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -325,6 +329,14 @@ app.whenReady().then(() => {
       return { ok: true };
     }
   );
+
+  ipcMain.handle('app:resizeEditor', (_, showAdvanced: boolean) => {
+    if (win && !win.isDestroyed()) {
+      const width = showAdvanced ? EDITOR_WIDTH_EXPANDED : EDITOR_WIDTH_COLLAPSED;
+      win.setSize(width, EDITOR_HEIGHT);
+    }
+    return { ok: true };
+  });
 
   ipcMain.handle('app:pickAppFromFinder', async () => {
     const result = win
