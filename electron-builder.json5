@@ -11,6 +11,10 @@
     "dist",
     "dist-electron"
   ],
+  "asarUnpack": [
+    "node_modules/better-sqlite3/**/*",
+    "node_modules/active-win/**/*"
+  ],
   "extraResources": [
     {
       "from": "public/tray-iconTemplate.png",

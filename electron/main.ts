@@ -64,6 +64,29 @@ const WATCHDOG_STALE_THRESHOLD_MS = 5000;
 
 let lastPollTickAt = 0;
 let pollerIntervalId: ReturnType<typeof setInterval> | null = null;
+let hasAccessibilityPermission: boolean | null = null;
+
+async function checkAccessibilityPermission(): Promise<boolean> {
+  try {
+    await activeWindow({
+      screenRecordingPermission: false,
+      accessibilityPermission: false,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function updateTrayTooltip() {
+  if (tray) {
+    tray.setToolTip(
+      hasAccessibilityPermission === false && process.platform === 'darwin'
+        ? 'Context HandOff — Accessibility permission required'
+        : 'Context HandOff'
+    );
+  }
+}
 
 function readPlistString(plistPath: string, key: string): string | null {
   try {
@@ -83,23 +106,38 @@ function createTray() {
 
   tray = new Tray(icon.isEmpty() ? iconPath : icon);
   tray.setToolTip('Context HandOff');
+  if (process.platform === 'darwin') {
+    tray.setIgnoreDoubleClickEvents(true);
+  }
 
   tray.on('click', async () => {
-    const active = await activeWindow({
-      screenRecordingPermission: false,
-      accessibilityPermission: false,
-    });
-    const bundleId =
-      active?.platform === 'macos' ? active.owner.bundleId ?? '' : '';
-    lastActiveAppBeforeEditorOpen = {
-      bundleId,
-      displayName: active?.owner?.name ?? '',
-    };
+    const shouldFetchActive =
+      process.platform !== 'darwin' || hasAccessibilityPermission !== false;
+    if (shouldFetchActive) {
+      try {
+        const active = await activeWindow({
+          screenRecordingPermission: false,
+          accessibilityPermission: false,
+        });
+        const bundleId =
+          active?.platform === 'macos' ? active.owner.bundleId ?? '' : '';
+        lastActiveAppBeforeEditorOpen = {
+          bundleId,
+          displayName: active?.owner?.name ?? '',
+        };
+      } catch {
+        lastActiveAppBeforeEditorOpen = { bundleId: '', displayName: '' };
+      }
+    }
     if (win && !win.isDestroyed()) {
       win.show();
       win.focus();
     } else {
       createWindow();
+      if (win && !win.isDestroyed()) {
+        win.show();
+        win.focus();
+      }
     }
   });
 }
@@ -238,17 +276,25 @@ app.on('activate', () => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock.hide();
   initDb();
   createTray();
+
   if (process.platform === 'darwin') {
     app.setLoginItemSettings({ openAtLogin: getLaunchAtLogin() });
+    hasAccessibilityPermission = await checkAccessibilityPermission();
+    updateTrayTooltip();
+    if (hasAccessibilityPermission) {
+      lastPollTickAt = Date.now();
+      pollerIntervalId = startAppActivePoller();
+      startWatchdog();
+    }
+  } else {
+    lastPollTickAt = Date.now();
+    pollerIntervalId = startAppActivePoller();
+    startWatchdog();
   }
-
-  lastPollTickAt = Date.now();
-  pollerIntervalId = startAppActivePoller();
-  startWatchdog();
 
   powerMonitor.on('unlock-screen', () => {
     try {
@@ -341,6 +387,22 @@ app.whenReady().then(() => {
       return { ok: true };
     }
   );
+
+  ipcMain.handle('app:getAccessibilityStatus', () => ({
+    granted: hasAccessibilityPermission === true,
+  }));
+
+  ipcMain.handle('app:retryAccessibilityAndStartPoller', async () => {
+    if (process.platform !== 'darwin') return true;
+    hasAccessibilityPermission = await checkAccessibilityPermission();
+    updateTrayTooltip();
+    if (hasAccessibilityPermission && pollerIntervalId === null) {
+      lastPollTickAt = Date.now();
+      pollerIntervalId = startAppActivePoller();
+      startWatchdog();
+    }
+    return hasAccessibilityPermission;
+  });
 
   ipcMain.handle('app:getLastActiveApp', () => {
     return lastActiveAppBeforeEditorOpen;

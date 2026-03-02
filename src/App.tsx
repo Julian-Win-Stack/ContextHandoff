@@ -57,6 +57,10 @@ function App() {
     'on_app' | 'on_day_start'
   >('on_app');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [accessibilityGranted, setAccessibilityGranted] = useState<
+    boolean | null
+  >(null);
+  const [accessibilityRetrying, setAccessibilityRetrying] = useState(false);
 
   useEffect(() => {
     window.ipcRenderer.invoke('app:resizeEditor', showAdvanced);
@@ -98,6 +102,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    window.ipcRenderer
+      .invoke('app:getAccessibilityStatus')
+      .then((res: { granted: boolean }) => setAccessibilityGranted(res.granted));
+  }, []);
+
+  useEffect(() => {
     const channel = deliverToday
       ? 'db:getNoteForToday'
       : 'db:getNoteForTomorrow';
@@ -125,6 +135,15 @@ function App() {
     });
     setTargetAppBundleId(lastActive.bundleId);
     setTargetAppDisplayName(lastActive.displayName);
+  }
+
+  async function handleRetryAccessibility() {
+    setAccessibilityRetrying(true);
+    const granted = (await window.ipcRenderer.invoke(
+      'app:retryAccessibilityAndStartPoller'
+    )) as boolean;
+    setAccessibilityGranted(granted);
+    setAccessibilityRetrying(false);
   }
 
   async function handleSelectAppFromPicker() {
@@ -173,11 +192,31 @@ function App() {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  const showAccessibilityBanner =
+    deliveryMode === 'on_app' && accessibilityGranted === false;
+
   return (
     <div
       className={`editor ${!showAdvanced ? 'editor--advanced-collapsed' : ''}`}
     >
       <div className="editor-main">
+        {showAccessibilityBanner && (
+          <div className="editor-accessibility-banner">
+            <p>
+              Accessibility permission is required for app-switch delivery.
+              Grant it in System Settings → Privacy & Security → Accessibility,
+              then click Retry.
+            </p>
+            <button
+              type="button"
+              className="editor-accessibility-retry"
+              onClick={handleRetryAccessibility}
+              disabled={accessibilityRetrying}
+            >
+              {accessibilityRetrying ? 'Checking…' : 'Retry'}
+            </button>
+          </div>
+        )}
         <h2>Context Handoff</h2>
         <p className="editor-delivery">
           Will deliver on:{' '}
