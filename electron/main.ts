@@ -110,11 +110,15 @@ function getIconPath() {
 
   const publicPath = path.join(appRoot, 'public', iconName);
   const distPath = path.join(appRoot, 'dist', iconName);
+  const resourcesPath = path.join(process.resourcesPath, iconName);
 
   if (fs.existsSync(publicPath)) return publicPath;
   if (fs.existsSync(distPath)) return distPath;
+  if (fs.existsSync(resourcesPath)) return resourcesPath;
 
-  throw new Error(`Tray icon not found. Tried:\n${publicPath}\n${distPath}`);
+  throw new Error(
+    `Tray icon not found. Tried:\n${publicPath}\n${distPath}\n${resourcesPath}`
+  );
 }
 
 function maybeDeliverNote(targetApp: string): boolean {

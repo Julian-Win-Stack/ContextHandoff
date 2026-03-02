@@ -206,11 +206,16 @@ function getIconPath() {
   const iconName = "tray-iconTemplate.png";
   const publicPath = path.join(appRoot, "public", iconName);
   const distPath = path.join(appRoot, "dist", iconName);
+  const resourcesPath = path.join(process.resourcesPath, iconName);
   if (fs.existsSync(publicPath)) return publicPath;
   if (fs.existsSync(distPath)) return distPath;
-  throw new Error(`Tray icon not found. Tried:
+  if (fs.existsSync(resourcesPath)) return resourcesPath;
+  throw new Error(
+    `Tray icon not found. Tried:
 ${publicPath}
-${distPath}`);
+${distPath}
+${resourcesPath}`
+  );
 }
 function maybeDeliverNote(targetApp) {
   const deliverAfter = getDeliverAfterMinutes();

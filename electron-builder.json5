@@ -11,6 +11,12 @@
     "dist",
     "dist-electron"
   ],
+  "extraResources": [
+    {
+      "from": "public/tray-iconTemplate.png",
+      "to": "tray-iconTemplate.png"
+    }
+  ],
   "mac": {
     "target": [
       "dmg"
