@@ -161,6 +161,11 @@ let win = null;
 let tray = null;
 let pendingOverlayNote = null;
 let lastActiveAppBeforeEditorOpen = { bundleId: "", displayName: "" };
+const POLL_INTERVAL_MS = 500;
+const WATCHDOG_INTERVAL_MS = 5e3;
+const WATCHDOG_STALE_THRESHOLD_MS = 5e3;
+let lastPollTickAt = 0;
+let pollerIntervalId = null;
 function readPlistString(plistPath, key) {
   try {
     return execSync(
@@ -262,26 +267,10 @@ function createWindow() {
     win = null;
   });
 }
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-    win = null;
-  }
-});
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
-app.whenReady().then(() => {
-  if (process.platform === "darwin") app.dock.hide();
-  initDb();
-  createTray();
-  if (process.platform === "darwin") {
-    app.setLoginItemSettings({ openAtLogin: getLaunchAtLogin() });
-  }
+function startAppActivePoller() {
   let previousApp = "";
-  setInterval(async () => {
+  return setInterval(async () => {
+    lastPollTickAt = Date.now();
     try {
       if (getDeliveryMode() !== "on_app") return;
       const targetApp = getTargetApp();
@@ -300,13 +289,50 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error("[frontmost poll]", err);
     }
-  }, 500);
+  }, POLL_INTERVAL_MS);
+}
+function startWatchdog() {
+  setInterval(() => {
+    if (Date.now() - lastPollTickAt > WATCHDOG_STALE_THRESHOLD_MS) {
+      console.warn("[watchdog] poller stalled, restarting");
+      if (pollerIntervalId !== null) {
+        clearInterval(pollerIntervalId);
+      }
+      pollerIntervalId = startAppActivePoller();
+    }
+  }, WATCHDOG_INTERVAL_MS);
+}
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+    win = null;
+  }
+});
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+app.whenReady().then(() => {
+  if (process.platform === "darwin") app.dock.hide();
+  initDb();
+  createTray();
+  if (process.platform === "darwin") {
+    app.setLoginItemSettings({ openAtLogin: getLaunchAtLogin() });
+  }
+  lastPollTickAt = Date.now();
+  pollerIntervalId = startAppActivePoller();
+  startWatchdog();
   powerMonitor.on("unlock-screen", () => {
-    if (getDeliveryMode() !== "on_day_start") return;
-    const today = getTodayDateStr();
-    if (getLastDayStartDeliverDate() === today) return;
-    if (maybeDeliverNote(DAY_START_TARGET_APP)) {
-      setLastDayStartDeliverDate(today);
+    try {
+      if (getDeliveryMode() !== "on_day_start") return;
+      const today = getTodayDateStr();
+      if (getLastDayStartDeliverDate() === today) return;
+      if (maybeDeliverNote(DAY_START_TARGET_APP)) {
+        setLastDayStartDeliverDate(today);
+      }
+    } catch (err) {
+      console.error("[unlock-screen]", err);
     }
   });
   ipcMain.handle(
